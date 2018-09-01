@@ -80,7 +80,8 @@ SPIDesc SPIDeviceManager::_device[] = {
     SPIDesc("mpu9250",    0, 1, SPI_MODE_0, 8, SPI_CS_KERNEL,  1*MHZ, 11*MHZ),
     SPIDesc("ublox",      0, 0, SPI_MODE_0, 8, SPI_CS_KERNEL,  5*MHZ, 5*MHZ),
 #if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO2
-    SPIDesc("lsm9ds1_m",  0, 2, SPI_MODE_0, 8, SPI_CS_KERNEL,  1*MHZ, 10*MHZ),
+    SPIDesc("lsm9ds1_m",  0, 2, SPI_MODE_0, 8, SPI_CS_KERNEL,  10*MHZ, 10*MHZ),
+	SPIDesc("lsm9ds1_ag",  0, 3, SPI_MODE_0, 8, SPI_CS_KERNEL,  10*MHZ, 10*MHZ),
 #endif
 };
 #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_ERLEBRAIN2 || \

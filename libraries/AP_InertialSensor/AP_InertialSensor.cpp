@@ -834,6 +834,9 @@ AP_InertialSensor::detect_backends(void)
 #endif
 #elif HAL_INS_DEFAULT == HAL_INS_MPU9250_SPI && defined(HAL_INS_DEFAULT_ROTATION)
     ADD_BACKEND(AP_InertialSensor_Invensense::probe(*this, hal.spi->get_device(HAL_INS_MPU9250_NAME), HAL_INS_DEFAULT_ROTATION));
+#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO2
+    ADD_BACKEND(AP_InertialSensor_LSM9DS1::probe(*this, hal.spi->get_device("lsm9ds1_ag"), ROTATION_YAW_180));
+#endif
 #elif HAL_INS_DEFAULT == HAL_INS_MPU9250_SPI
     ADD_BACKEND(AP_InertialSensor_Invensense::probe(*this, hal.spi->get_device(HAL_INS_MPU9250_NAME)));
 #elif HAL_INS_DEFAULT == HAL_INS_EDGE
