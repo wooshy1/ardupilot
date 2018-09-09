@@ -77,7 +77,7 @@ public:
     void       set_control_in(int16_t val) { control_in = val;}
 
     void       clear_override();
-    void       set_override(const uint16_t v, const uint32_t timestamp_us=0);
+    void       set_override(const uint16_t v, const uint32_t timestamp_us);
     bool       has_override() const;
 
     // get control input with zero deadzone
@@ -132,7 +132,7 @@ public:
         RETRACT_MOUNT =       27, // Retract Mount
         RELAY =               28, // Relay pin on/off (only supports first relay)
         LANDING_GEAR =        29, // Landing gear controller
-        LOST_COPTER_SOUND =   30, // Play lost copter sound
+        LOST_VEHICLE_SOUND =  30, // Play lost vehicle sound
         MOTOR_ESTOP =         31, // Emergency Stop Switch
         MOTOR_INTERLOCK =     32, // Motor On/Off switch
         BRAKE =               33, // Brake flight mode
@@ -160,6 +160,7 @@ public:
         GUIDED       =        55, // guided mode
         LOITER       =        56, // loiter mode
         FOLLOW       =        57, // follow mode
+        CLEAR_WP     =        58, // clear waypoints
         // if you add something here, make sure to update the documentation of the parameter in RC_Channel.cpp!
         // also, if you add an option >255, you will need to fix duplicate_options_exist
     };
@@ -180,7 +181,10 @@ protected:
     virtual void do_aux_function(aux_func_t ch_option, aux_switch_pos_t);
 
     void do_aux_function_camera_trigger(const aux_switch_pos_t ch_flag);
+    void do_aux_function_clear_wp(const aux_switch_pos_t ch_flag);
     void do_aux_function_gripper(const aux_switch_pos_t ch_flag);
+    void do_aux_function_lost_vehicle_sound(const aux_switch_pos_t ch_flag);
+    void do_aux_function_rc_override_enable(const aux_switch_pos_t ch_flag);
     void do_aux_function_relay(uint8_t relay, bool val);
     void do_aux_function_sprayer(const aux_switch_pos_t ch_flag);
 
@@ -255,6 +259,7 @@ private:
 
     void reset_mode_switch();
     void read_mode_switch();
+
 };
 
 
@@ -316,6 +321,14 @@ public:
     // has_valid_input should be pure-virtual when Plane is converted
     virtual bool has_valid_input() const { return false; };
 
+    bool gcs_overrides_enabled() const { return _gcs_overrides_enabled; }
+    void set_gcs_overrides_enabled(bool enable) {
+        _gcs_overrides_enabled = enable;
+        if (!_gcs_overrides_enabled) {
+            clear_overrides();
+        }
+    }
+
 private:
     static RC_Channels *_singleton;
     // this static arrangement is to avoid static pointers in AP_Param tables
@@ -331,6 +344,8 @@ private:
     virtual int8_t flight_mode_channel_number() const = 0;
     RC_Channel *flight_mode_channel();
 
+    // Allow override by default at start
+    bool _gcs_overrides_enabled = true;
 };
 
 RC_Channels &rc();

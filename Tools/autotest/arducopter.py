@@ -515,18 +515,17 @@ class AutoTestCopter(AutoTest):
             alt = m.relative_alt / 1000.0 # mm -> m
             pos = self.mav.location()
             home_distance = self.get_distance(HOME, pos)
-            self.progress("Alt: %u  HomeDistance: %.0f" %
+            self.progress("Alt: %f  HomeDistance: %.0f" %
                           (alt, home_distance))
             # recenter pitch sticks once we're home so we don't fly off again
             if pitching_forward and home_distance < 10:
                 pitching_forward = False
-                self.set_rc(2, 1500)
+                self.set_rc(2, 1475)
                 # disable fence
                 self.set_parameter("FENCE_ENABLE", 0)
             if alt <= 1 and home_distance < 10:
                 # reduce throttle
                 self.set_rc(3, 1000)
-                # switch mode to stabilize
                 self.mavproxy.send('switch 2\n')  # land mode
                 self.wait_mode('LAND')
                 self.progress("Waiting for disarm")
@@ -1271,12 +1270,23 @@ class AutoTestCopter(AutoTest):
             count_start = -1
             count_stop = -1
             tstart = self.get_sim_time()
+            last_mission_current_msg = 0
+            last_seq = None
             while self.armed(): # we RTL at end of mission
-                now = self.get_sim_time()
+                now = self.get_sim_time_cached()
                 if now - tstart > 120:
                     raise AutoTestTimeoutException()
                 m = self.mav.recv_match(type='MISSION_CURRENT', blocking=True)
-                self.progress("MISSION_CURRENT.seq=%u" % (m.seq,))
+                if ((now - last_mission_current_msg) > 1 or
+                    m.seq != last_seq):
+                    dist = None
+                    x = self.mav.messages.get("NAV_CONTROLLER_OUTPUT", None)
+                    if x is not None:
+                        dist = x.wp_dist
+                        self.progress("MISSION_CURRENT.seq=%u dist=%s" %
+                                      (m.seq, dist))
+                    last_mission_current_msg = self.get_sim_time_cached()
+                    last_seq = m.seq
                 if m.seq == 3:
                     self.progress("At delay item")
                     if count_start == -1:

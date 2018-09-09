@@ -150,6 +150,7 @@ public:
     friend class AP_AdvancedFailsafe_Plane;
     friend class AP_Avoidance_Plane;
     friend class GCS_Plane;
+    friend class RC_Channel_Plane;
     friend class RC_Channels_Plane;
 
     Plane(void);
@@ -1032,6 +1033,8 @@ private:
 #if SOARING_ENABLED == ENABLED
     void update_soaring();
 #endif
+
+    void read_aux_all();
 
     // support for AP_Avoidance custom flight mode, AVOID_ADSB
     bool avoid_adsb_init(bool ignore_checks);

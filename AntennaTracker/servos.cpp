@@ -7,6 +7,9 @@
 // init_servos - initialises the servos
 void Tracker::init_servos()
 {
+    // update assigned functions and enable auxiliary servos
+    SRV_Channels::enable_aux_servos();
+
     SRV_Channels::set_default_function(CH_YAW, SRV_Channel::k_tracker_yaw);
     SRV_Channels::set_default_function(CH_PITCH, SRV_Channel::k_tracker_pitch);
 
@@ -18,7 +21,7 @@ void Tracker::init_servos()
 
     SRV_Channels::calc_pwm();
     SRV_Channels::output_ch_all();
-    
+
     yaw_servo_out_filt.set_cutoff_frequency(SERVO_OUT_FILT_HZ);
     pitch_servo_out_filt.set_cutoff_frequency(SERVO_OUT_FILT_HZ);
 }

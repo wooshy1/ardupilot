@@ -12,6 +12,7 @@ from pysim import util
 
 from common import AutoTest
 from common import NotAchievedException
+from common import PreconditionFailedException
 
 # get location of scripts
 testdir = os.path.dirname(os.path.realpath(__file__))
@@ -508,9 +509,23 @@ class AutoTestPlane(AutoTest):
             self.wait_mode('AUTO')
             self.wait_ready_to_arm()
             self.arm_vehicle()
+            tstart = self.get_sim_time_cached()
+            last_mission_current_msg = 0
+            last_seq = None
             while self.armed():
                 m = self.mav.recv_match(type='MISSION_CURRENT', blocking=True)
-                self.progress("MISSION_CURRENT.seq=%u" % (m.seq,))
+                time_delta = (self.get_sim_time_cached() -
+                              last_mission_current_msg)
+                if (time_delta >1 or
+                    m.seq != last_seq):
+                    dist = None
+                    x = self.mav.messages.get("NAV_CONTROLLER_OUTPUT", None)
+                    if x is not None:
+                        dist = x.wp_dist
+                    self.progress("MISSION_CURRENT.seq=%u (dist=%s)" %
+                                  (m.seq,str(dist)))
+                    last_mission_current_msg = self.get_sim_time_cached()
+                    last_seq = m.seq
             # flaps should undeploy at the end
             self.wait_servo_channel_value(servo_ch, servo_ch_min, timeout=30)
 
@@ -527,7 +542,43 @@ class AutoTestPlane(AutoTest):
             ex = e
         self.context_pop()
         if ex:
+            if self.armed():
+                self.disarm_vehicle()
             raise ex
+
+    def test_rc_relay(self):
+        '''test toggling channel 12 toggles relay'''
+        off = self.get_parameter("SIM_PIN_MASK")
+        if off:
+            raise PreconditionFailedException()
+        self.set_rc(12, 2000)
+        self.mav.wait_heartbeat()
+        self.mav.wait_heartbeat()
+        on = self.get_parameter("SIM_PIN_MASK")
+        if not on:
+            raise NotAchievedException()
+        self.set_rc(12, 1000)
+        self.mav.wait_heartbeat()
+        self.mav.wait_heartbeat()
+        off = self.get_parameter("SIM_PIN_MASK")
+        if off:
+            raise NotAchievedException()
+
+    def test_rc_option_camera_trigger(self):
+        '''test toggling channel 12 takes picture'''
+        x = self.mav.messages.get("CAMERA_FEEDBACK", None)
+        if x is not None:
+            raise PreconditionFailedException()
+        self.set_rc(12, 2000)
+        tstart = self.get_sim_time()
+        while self.get_sim_time() - tstart < 10:
+            x = self.mav.messages.get("CAMERA_FEEDBACK", None)
+            if x is not None:
+                break
+            self.mav.wait_heartbeat()
+        self.set_rc(12, 1000)
+        if x is None:
+            raise NotAchievedException()
 
     def autotest(self):
         """Autotest ArduPlane in SITL."""
@@ -544,6 +595,19 @@ class AutoTestPlane(AutoTest):
             self.set_rc_default()
             self.set_rc(3, 1000)
             self.set_rc(8, 1800)
+
+            self.set_parameter("RC12_OPTION", 9)
+            self.reboot_sitl() # needed for RC12_OPTION to take effect
+
+            self.run_test("Test RC Option - Camera Trigger",
+                          self.test_rc_option_camera_trigger)
+
+            self.set_parameter("RC12_OPTION", 28)
+            self.reboot_sitl() # needed for RC12_OPTION to take effect
+
+            self.run_test("Test Relay RC Channel Option",
+                          self.test_rc_relay)
+
             self.progress("Waiting for GPS fix")
             self.mav.recv_match(condition='VFR_HUD.alt>10', blocking=True)
             self.mav.wait_gps_fix()
@@ -553,9 +617,11 @@ class AutoTestPlane(AutoTest):
             self.progress("Home location: %s" % self.homeloc)
             self.wait_ready_to_arm()
             self.run_test("Arm features", self.test_arm_feature)
-            self.arm_vehicle()
 
             self.run_test("Flaps", self.fly_flaps)
+
+            self.mavproxy.send('switch 6\n')
+            self.wait_mode('MANUAL')
 
             self.run_test("Takeoff", self.takeoff)
 
@@ -596,4 +662,7 @@ class AutoTestPlane(AutoTest):
         if len(self.fail_list):
             self.progress("FAILED: %s" % self.fail_list)
             return False
+
+        self.progress("Max set_rc_timeout=%s" % self.max_set_rc_timeout);
+
         return True

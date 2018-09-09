@@ -38,15 +38,12 @@ UC_REGISTRY_BINDER(Mag2Cb, uavcan::equipment::ahrs::MagneticFieldStrength2);
 AP_Compass_UAVCAN::DetectedModules AP_Compass_UAVCAN::_detected_modules[] = {0};
 AP_HAL::Semaphore* AP_Compass_UAVCAN::_sem_registry = nullptr;
 
-/*
-  constructor - registers instance at top Compass driver
- */
-AP_Compass_UAVCAN::AP_Compass_UAVCAN(Compass &compass, AP_UAVCAN* ap_uavcan, uint8_t node_id, uint8_t sensor_id):
-    AP_Compass_Backend(compass),
-    _ap_uavcan(ap_uavcan),
-    _node_id(node_id),
-    _sensor_id(sensor_id)
-{}
+AP_Compass_UAVCAN::AP_Compass_UAVCAN(AP_UAVCAN* ap_uavcan, uint8_t node_id, uint8_t sensor_id)
+    : _ap_uavcan(ap_uavcan)
+    , _node_id(node_id)
+    , _sensor_id(sensor_id)
+{
+}
 
 void AP_Compass_UAVCAN::subscribe_msgs(AP_UAVCAN* ap_uavcan)
 {
@@ -86,7 +83,7 @@ void AP_Compass_UAVCAN::give_registry()
     _sem_registry->give();
 }
 
-AP_Compass_Backend* AP_Compass_UAVCAN::probe(Compass& _frontend)
+AP_Compass_Backend* AP_Compass_UAVCAN::probe()
 {
     if (!take_registry()) {
         return nullptr;
@@ -95,7 +92,7 @@ AP_Compass_Backend* AP_Compass_UAVCAN::probe(Compass& _frontend)
     for (uint8_t i = 0; i < COMPASS_MAX_BACKEND; i++) {
         if (!_detected_modules[i].driver && _detected_modules[i].ap_uavcan) {
             // Register new Compass mode to a backend
-            driver = new AP_Compass_UAVCAN(_frontend, _detected_modules[i].ap_uavcan, _detected_modules[i].node_id, _detected_modules[i].sensor_id);
+            driver = new AP_Compass_UAVCAN(_detected_modules[i].ap_uavcan, _detected_modules[i].node_id, _detected_modules[i].sensor_id);
             if (driver) {
                 _detected_modules[i].driver = driver;
                 driver->init();
@@ -194,7 +191,7 @@ void AP_Compass_UAVCAN::handle_mag_msg(const Vector3f &mag)
     // correct raw_field for known errors
     correct_field(raw_field, _instance);
 
-    WITH_SEMAPHORE(_sem_mag);
+    WITH_SEMAPHORE(_sem);
     // accumulate into averaging filter
     _sum += raw_field;
     _count++;
@@ -205,13 +202,12 @@ void AP_Compass_UAVCAN::handle_magnetic_field(AP_UAVCAN* ap_uavcan, uint8_t node
     if (take_registry()) {
         Vector3f mag_vector;
         AP_Compass_UAVCAN* driver = get_uavcan_backend(ap_uavcan, node_id, 0);
-        if (driver == nullptr) {
-            return;
+        if (driver != nullptr) {
+            mag_vector[0] = cb.msg->magnetic_field_ga[0];
+            mag_vector[1] = cb.msg->magnetic_field_ga[1];
+            mag_vector[2] = cb.msg->magnetic_field_ga[2];
+            driver->handle_mag_msg(mag_vector);
         }
-        mag_vector[0] = cb.msg->magnetic_field_ga[0];
-        mag_vector[1] = cb.msg->magnetic_field_ga[1];
-        mag_vector[2] = cb.msg->magnetic_field_ga[2];
-        driver->handle_mag_msg(mag_vector);
         give_registry();
     }
 }
@@ -222,13 +218,12 @@ void AP_Compass_UAVCAN::handle_magnetic_field_2(AP_UAVCAN* ap_uavcan, uint8_t no
         Vector3f mag_vector;
         uint8_t sensor_id = cb.msg->sensor_id;
         AP_Compass_UAVCAN* driver = get_uavcan_backend(ap_uavcan, node_id, sensor_id);
-        if (driver == nullptr) {
-            return;
+        if (driver != nullptr) {
+            mag_vector[0] = cb.msg->magnetic_field_ga[0];
+            mag_vector[1] = cb.msg->magnetic_field_ga[1];
+            mag_vector[2] = cb.msg->magnetic_field_ga[2];
+            driver->handle_mag_msg(mag_vector);
         }
-        mag_vector[0] = cb.msg->magnetic_field_ga[0];
-        mag_vector[1] = cb.msg->magnetic_field_ga[1];
-        mag_vector[2] = cb.msg->magnetic_field_ga[2];
-        driver->handle_mag_msg(mag_vector);
         give_registry();
     }
 }
@@ -240,7 +235,7 @@ void AP_Compass_UAVCAN::read(void)
         return;
     }
 
-    WITH_SEMAPHORE(_sem_mag);
+    WITH_SEMAPHORE(_sem);
     _sum /= _count;
 
     publish_filtered_field(_sum, _instance);

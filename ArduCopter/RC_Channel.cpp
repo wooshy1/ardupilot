@@ -81,7 +81,6 @@ void RC_Channel_Copter::init_aux_function(const aux_func_t ch_option, const aux_
     case AVOID_PROXIMITY:
     case INVERTED:
     case WINCH_ENABLE:
-    case RC_OVERRIDE_ENABLE:
         do_aux_function(ch_option, ch_flag);
         break;
     // the following functions do not need to be initialised:
@@ -92,6 +91,18 @@ void RC_Channel_Copter::init_aux_function(const aux_func_t ch_option, const aux_
     case RESETTOARMEDYAW:
     case AUTO:
     case AUTOTUNE:
+    case LAND:
+    case BRAKE:
+    case THROW:
+    case SMART_RTL:
+    case GUIDED:
+    case LANDING_GEAR:
+    case PARACHUTE_RELEASE:
+    case ARMDISARM:
+    case WINCH_CONTROL:
+    case USER_FUNC1:
+    case USER_FUNC2:
+    case USER_FUNC3:
         break;
     default:
         RC_Channel::init_aux_function(ch_option, ch_flag);
@@ -353,20 +364,6 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const aux_sw
             }
             break;
 
-        case LOST_COPTER_SOUND:
-            switch (ch_flag) {
-                case HIGH:
-                    AP_Notify::flags.vehicle_lost = true;
-                    break;
-                case MIDDLE:
-                    // nothing
-                    break;
-                case LOW:
-                    AP_Notify::flags.vehicle_lost = false;
-                    break;
-            }
-            break;
-
         case MOTOR_ESTOP:
             // Turn on Emergency Stop logic when channel is high
             copter.set_motor_emergency_stop(ch_flag == HIGH);
@@ -514,23 +511,6 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const aux_sw
 #endif
             break;
 
-        case RC_OVERRIDE_ENABLE:
-            // Allow or disallow RC_Override
-            switch (ch_flag) {
-                case HIGH: {
-                    copter.ap.rc_override_enable = true;
-                    break;
-                }
-                case MIDDLE:
-                    // nothing
-                    break;
-                case LOW: {
-                    copter.ap.rc_override_enable = false;
-                    break;
-                }
-            }
-            break;
-            
 #ifdef USERHOOK_AUXSWITCH
         case USER_FUNC1:
             userhook_auxSwitch1(ch_flag);
