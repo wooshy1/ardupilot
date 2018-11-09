@@ -23,12 +23,10 @@ Copter::Mode::Mode(void) :
     channel_throttle(copter.channel_throttle),
     channel_yaw(copter.channel_yaw),
     G_Dt(copter.G_Dt),
-    ap(copter.ap),
-    ekfGndSpdLimit(copter.ekfGndSpdLimit),
 #if FRAME_CONFIG == HELI_FRAME
     heli_flags(copter.heli_flags),
 #endif
-    ekfNavVelGainScaler(copter.ekfNavVelGainScaler)
+    ap(copter.ap)
 { };
 
 float Copter::Mode::auto_takeoff_no_nav_alt_cm = 0;
@@ -157,6 +155,12 @@ Copter::Mode *Copter::mode_from_mode_num(const uint8_t mode)
             break;
 #endif
 
+#if MODE_ZIGZAG_ENABLED == ENABLED
+        case ZIGZAG:
+            ret = &mode_zigzag;
+            break;
+#endif
+
         default:
             break;
     }
@@ -245,9 +249,6 @@ bool Copter::set_mode(control_mode_t mode, mode_reason_t reason)
 // called at 100hz or more
 void Copter::update_flight_mode()
 {
-    // Update EKF speed limit - used to limit speed when we are using optical flow
-    ahrs.getEkfControlLimits(ekfGndSpdLimit, ekfNavVelGainScaler);
-
     target_rangefinder_alt_used = false;
 
     flightmode->run();
@@ -406,10 +407,8 @@ int32_t Copter::Mode::get_alt_above_ground(void)
 void Copter::Mode::land_run_vertical_control(bool pause_descent)
 {
 #if PRECISION_LANDING == ENABLED
-    AC_PrecLand &precland = copter.precland;
-
     const bool navigating = pos_control->is_active_xy();
-    bool doing_precision_landing = !ap.land_repo_active && precland.target_acquired() && navigating;
+    bool doing_precision_landing = !ap.land_repo_active && copter.precland.target_acquired() && navigating;
 #else
     bool doing_precision_landing = false;
 #endif
@@ -425,14 +424,14 @@ void Copter::Mode::land_run_vertical_control(bool pause_descent)
         if (g.land_speed_high > 0) {
             max_land_descent_velocity = -g.land_speed_high;
         } else {
-            max_land_descent_velocity = pos_control->get_speed_down();
+            max_land_descent_velocity = pos_control->get_max_speed_down();
         }
 
         // Don't speed up for landing.
         max_land_descent_velocity = MIN(max_land_descent_velocity, -abs(g.land_speed));
 
         // Compute a vertical velocity demand such that the vehicle approaches g2.land_alt_low. Without the below constraint, this would cause the vehicle to hover at g2.land_alt_low.
-        cmb_rate = AC_AttitudeControl::sqrt_controller(MAX(g2.land_alt_low,100)-alt_above_ground, pos_control->get_pos_z_p().kP(), pos_control->get_accel_z(), G_Dt);
+        cmb_rate = AC_AttitudeControl::sqrt_controller(MAX(g2.land_alt_low,100)-alt_above_ground, pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), G_Dt);
 
         // Constrain the demanded vertical velocity so that it is between the configured maximum descent speed and the configured minimum descent speed.
         cmb_rate = constrain_float(cmb_rate, max_land_descent_velocity, -abs(g.land_speed));
@@ -451,9 +450,6 @@ void Copter::Mode::land_run_vertical_control(bool pause_descent)
 
 void Copter::Mode::land_run_horizontal_control()
 {
-    LowPassFilterFloat &rc_throttle_control_in_filter = copter.rc_throttle_control_in_filter;
-    AP_Vehicle::MultiCopter &aparm = copter.aparm;
-
     float target_roll = 0.0f;
     float target_pitch = 0.0f;
     float target_yaw_rate = 0;
@@ -465,7 +461,7 @@ void Copter::Mode::land_run_horizontal_control()
 
     // process pilot inputs
     if (!copter.failsafe.radio) {
-        if ((g.throttle_behavior & THR_BEHAVE_HIGH_THROTTLE_CANCELS_LAND) != 0 && rc_throttle_control_in_filter.get() > LAND_CANCEL_TRIGGER_THR){
+        if ((g.throttle_behavior & THR_BEHAVE_HIGH_THROTTLE_CANCELS_LAND) != 0 && copter.rc_throttle_control_in_filter.get() > LAND_CANCEL_TRIGGER_THR){
             copter.Log_Write_Event(DATA_LAND_CANCELLED_BY_PILOT);
             // exit land if throttle is high
             if (!set_mode(LOITER, MODE_REASON_THROTTLE_LAND_ESCAPE)) {
@@ -491,16 +487,15 @@ void Copter::Mode::land_run_horizontal_control()
     }
 
 #if PRECISION_LANDING == ENABLED
-    AC_PrecLand &precland = copter.precland;
-    bool doing_precision_landing = !ap.land_repo_active && precland.target_acquired();
+    bool doing_precision_landing = !ap.land_repo_active && copter.precland.target_acquired();
     // run precision landing
     if (doing_precision_landing) {
         Vector2f target_pos, target_vel_rel;
-        if (!precland.get_target_position_cm(target_pos)) {
+        if (!copter.precland.get_target_position_cm(target_pos)) {
             target_pos.x = inertial_nav.get_position().x;
             target_pos.y = inertial_nav.get_position().y;
         }
-        if (!precland.get_target_velocity_relative_cms(target_vel_rel)) {
+        if (!copter.precland.get_target_velocity_relative_cms(target_vel_rel)) {
             target_vel_rel.x = -inertial_nav.get_velocity().x;
             target_vel_rel.y = -inertial_nav.get_velocity().y;
         }
@@ -513,7 +508,7 @@ void Copter::Mode::land_run_horizontal_control()
     loiter_nav->set_pilot_desired_acceleration(target_roll, target_pitch, G_Dt);
 
     // run loiter controller
-    loiter_nav->update(ekfGndSpdLimit, ekfNavVelGainScaler);
+    loiter_nav->update();
 
     int32_t nav_roll  = loiter_nav->get_roll();
     int32_t nav_pitch = loiter_nav->get_pitch();
@@ -526,7 +521,7 @@ void Copter::Mode::land_run_horizontal_control()
         // limit attitude to 7 degrees below this limit and linearly
         // interpolate for 1m above that
         const int alt_above_ground = get_alt_above_ground();
-        float attitude_limit_cd = linear_interpolate(700, aparm.angle_max, alt_above_ground,
+        float attitude_limit_cd = linear_interpolate(700, copter.aparm.angle_max, alt_above_ground,
                                                      g2.wp_navalt_min*100U, (g2.wp_navalt_min+1)*100U);
         float total_angle_cd = norm(nav_roll, nav_pitch);
         if (total_angle_cd > attitude_limit_cd) {

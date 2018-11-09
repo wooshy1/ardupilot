@@ -198,7 +198,7 @@ public:
     // The sign convention is that a RH physical rotation of the sensor about an axis produces both a positive flow and gyro rate
     // msecFlowMeas is the scheduler time in msec when the optical flow data was received from the sensor.
     // posOffset is the XYZ flow sensor position in the body frame in m
-    void  writeOptFlowMeas(uint8_t &rawFlowQuality, Vector2f &rawFlowRates, Vector2f &rawGyroRates, uint32_t &msecFlowMeas, const Vector3f &posOffset);
+    void  writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &rawFlowRates, const Vector2f &rawGyroRates, const uint32_t msecFlowMeas, const Vector3f &posOffset);
 
     // return data for debugging optical flow fusion
     void getFlowDebug(float &varFlow, float &gndOffset, float &flowInnovX, float &flowInnovY, float &auxInnov, float &HAGL, float &rngInnov, float &range, float &gndOffsetErr) const;
@@ -383,7 +383,6 @@ private:
     // the states are available in two forms, either as a Vector31, or
     // broken down as individual elements. Both are equivalent (same
     // memory)
-    Vector28 statesArray;
     struct state_elements {
         Vector3f    angErr;         // 0..2
         Vector3f    velocity;       // 3..5
@@ -395,7 +394,12 @@ private:
         Vector3f    body_magfield;  // 19..21
         Vector2f    wind_vel;       // 22..23
         Quaternion  quat;           // 24..27
-    } &stateStruct;
+    };
+
+    union {
+        Vector28 statesArray;
+        struct state_elements stateStruct;
+    };
 
     struct output_elements {
         Quaternion  quat;           // 0..3
@@ -619,6 +623,8 @@ private:
 
     // zero stored variables
     void InitialiseVariables();
+
+    void InitialiseVariablesMag();
 
     // reset the horizontal position states uing the last GPS measurement
     void ResetPosition(void);
@@ -914,6 +920,7 @@ private:
     Vector3f delAngCorrected;       // corrected IMU delta angle vector at the EKF time horizon (rad)
     Vector3f delVelCorrected;       // corrected IMU delta velocity vector at the EKF time horizon (m/s)
     bool magFieldLearned;           // true when the magnetic field has been learned
+    uint32_t wasLearningCompass_ms; // time when we were last waiting for compass learn to complete
     Vector3f earthMagFieldVar;      // NED earth mag field variances for last learned field (mGauss^2)
     Vector3f bodyMagFieldVar;       // XYZ body mag field variances for last learned field (mGauss^2)
     bool delAngBiasLearned;         // true when the gyro bias has been learned
@@ -1151,7 +1158,7 @@ private:
     } mag_state;
 
     // string representing last reason for prearm failure
-    char prearm_fail_string[40];
+    char prearm_fail_string[41];
 
     // performance counters
     AP_HAL::Util::perf_counter_t  _perf_UpdateFilter;

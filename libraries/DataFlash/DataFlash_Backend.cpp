@@ -97,6 +97,9 @@ void DataFlash_Backend::push_log_blocks() {
 // for other messages to go out to the log
 bool DataFlash_Backend::WriteBlockCheckStartupMessages()
 {
+#if APM_BUILD_TYPE(APM_BUILD_Replay)
+    return true;
+#endif
     if (_startup_messagewriter->fmt_done()) {
         return true;
     }
@@ -408,7 +411,7 @@ bool DataFlash_Backend::ShouldLog(bool is_critical)
 
 bool DataFlash_Backend::Log_Write_MessageF(const char *fmt, ...)
 {
-    char msg[64] {};
+    char msg[65] {}; // sizeof(log_Message.msg) + null-termination
 
     va_list ap;
     va_start(ap, fmt);

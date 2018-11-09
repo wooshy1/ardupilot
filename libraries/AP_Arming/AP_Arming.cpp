@@ -26,6 +26,12 @@
 #define AP_ARMING_ACCEL_ERROR_THRESHOLD 0.75f
 #define AP_ARMING_AHRS_GPS_ERROR_MAX    10      // accept up to 10m difference between AHRS and GPS
 
+#if APM_BUILD_TYPE(APM_BUILD_ArduPlane)
+  #define ARMING_RUDDER_DEFAULT         ARMING_RUDDER_ARMONLY
+#else
+  #define ARMING_RUDDER_DEFAULT         ARMING_RUDDER_ARMDISARM
+#endif
+
 extern const AP_HAL::HAL& hal;
 
 const AP_Param::GroupInfo AP_Arming::var_info[] = {
@@ -57,24 +63,26 @@ const AP_Param::GroupInfo AP_Arming::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("ACCTHRESH",    3,     AP_Arming,  accel_error_threshold,  AP_ARMING_ACCEL_ERROR_THRESHOLD),
 
-    // @Param: VOLT_MIN
-    // @DisplayName: Arming voltage minimum on the first battery
-    // @Description: The minimum voltage of the first battery required to arm, 0 disables the check
-    // @Units: V
-    // @Increment: 0.1 
-    // @User: Standard
-    AP_GROUPINFO("VOLT_MIN",      4,     AP_Arming,  _min_voltage[0],  0),
+    // index 4 was VOLT_MIN, moved to AP_BattMonitor
+    // index 5 was VOLT2_MIN, moved to AP_BattMonitor
 
-    // @Param: VOLT2_MIN
-    // @DisplayName: Arming voltage minimum on the second battery
-    // @Description: The minimum voltage of the second battery required to arm, 0 disables the check
-    // @Units: V
-    // @Increment: 0.1 
-    // @User: Standard
-    AP_GROUPINFO("VOLT2_MIN",     5,     AP_Arming,  _min_voltage[1],  0),
-
+    // @Param: RUDDER
+    // @DisplayName: Arming with Rudder enable/disable
+    // @Description: Allow arm/disarm by rudder input. When enabled arming can be done with right rudder, disarming with left rudder. Rudder arming only works in manual throttle modes with throttle at zero +- deadzone (RCx_DZ)
+    // @Values: 0:Disabled,1:ArmingOnly,2:ArmOrDisarm
+    // @User: Advanced
+    AP_GROUPINFO_FRAME("RUDDER",  6,     AP_Arming, _rudder_arming, ARMING_RUDDER_DEFAULT, AP_PARAM_FRAME_PLANE |
+                                                                                           AP_PARAM_FRAME_ROVER |
+                                                                                           AP_PARAM_FRAME_COPTER |
+                                                                                           AP_PARAM_FRAME_TRICOPTER |
+                                                                                           AP_PARAM_FRAME_HELI),
     AP_GROUPEND
 };
+
+#if HAL_WITH_IO_MCU
+#include <AP_IOMCU/AP_IOMCU.h>
+extern AP_IOMCU iomcu;
+#endif
 
 AP_Arming::AP_Arming()
 {
@@ -122,7 +130,7 @@ void AP_Arming::check_failed(const enum AP_Arming::ArmingChecks check, bool repo
         return;
     }
     char taggedfmt[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN+1];
-    hal.util->snprintf((char*)taggedfmt, sizeof(taggedfmt)-1, "PreArm: %s", fmt);
+    hal.util->snprintf(taggedfmt, sizeof(taggedfmt), "PreArm: %s", fmt);
     MAV_SEVERITY severity = check_severity(check);
     va_list arg_list;
     va_start(arg_list, fmt);
@@ -417,21 +425,10 @@ bool AP_Arming::battery_checks(bool report)
     if ((checks_to_perform & ARMING_CHECK_ALL) ||
         (checks_to_perform & ARMING_CHECK_BATTERY)) {
 
-        const AP_BattMonitor &_battery = AP::battery();
-
-        if (AP_Notify::flags.failsafe_battery) {
-            check_failed(ARMING_CHECK_BATTERY, report, "Battery failsafe on");
+        char buffer[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN+1] {};
+        if (!AP::battery().arming_checks(sizeof(buffer), buffer)) {
+            check_failed(ARMING_CHECK_BATTERY, report, buffer);
             return false;
-        }
-
-        for (uint8_t i = 0; i < _battery.num_instances(); i++) {
-            if ((_min_voltage[i] > 0.0f) && (_battery.voltage(i) < _min_voltage[i])) {
-                check_failed(ARMING_CHECK_BATTERY, report, "Battery %d voltage %.1f below minimum %.1f",
-                            i+1,
-                            (double)_battery.voltage(i),
-                             (double)_min_voltage[i]);
-                return false;
-            }
         }
      }
     return true;
@@ -457,19 +454,19 @@ bool AP_Arming::rc_calibration_checks(bool report)
     bool check_passed = true;
     const uint8_t num_channels = RC_Channels::get_valid_channel_count();
     for (uint8_t i = 0; i < NUM_RC_CHANNELS; i++) {
-        const RC_Channel *ch = rc().channel(i);
-        if (ch == nullptr) {
+        const RC_Channel *c = rc().channel(i);
+        if (c == nullptr) {
             continue;
         }
-        if (i >= num_channels && !(ch->has_override())) {
+        if (i >= num_channels && !(c->has_override())) {
             continue;
         }
-        const uint16_t trim = ch->get_radio_trim();
-        if (ch->get_radio_min() > trim) {
+        const uint16_t trim = c->get_radio_trim();
+        if (c->get_radio_min() > trim) {
             check_failed(ARMING_CHECK_RC, report, "RC%d minimum is greater than trim", i + 1);
             check_passed = false;
         }
-        if (ch->get_radio_max() < trim) {
+        if (c->get_radio_max() < trim) {
             check_failed(ARMING_CHECK_RC, report, "RC%d maximum is less than trim", i + 1);
             check_passed = false;
         }
@@ -500,22 +497,29 @@ bool AP_Arming::servo_checks(bool report) const
 {
     bool check_passed = true;
     for (uint8_t i = 0; i < NUM_SERVO_CHANNELS; i++) {
-        const SRV_Channel *ch = SRV_Channels::srv_channel(i);
-        if (ch == nullptr || ch->get_function() == SRV_Channel::k_none) {
+        const SRV_Channel *c = SRV_Channels::srv_channel(i);
+        if (c == nullptr || c->get_function() == SRV_Channel::k_none) {
             continue;
         }
 
-        const uint16_t trim = ch->get_trim();
-        if (ch->get_output_min() > trim) {
+        const uint16_t trim = c->get_trim();
+        if (c->get_output_min() > trim) {
             check_failed(ARMING_CHECK_NONE, report, "SERVO%d minimum is greater than trim", i + 1);
             check_passed = false;
         }
-        if (ch->get_output_max() < trim) {
+        if (c->get_output_max() < trim) {
             check_failed(ARMING_CHECK_NONE, report, "SERVO%d maximum is less than trim", i + 1);
             check_passed = false;
         }
     }
 
+#if HAL_WITH_IO_MCU
+    if (!iomcu.healthy()) {
+        check_failed(ARMING_CHECK_NONE, report, "IOMCU is unhealthy");
+        check_passed = false;
+    }
+#endif
+    
     return check_passed;
 }
 

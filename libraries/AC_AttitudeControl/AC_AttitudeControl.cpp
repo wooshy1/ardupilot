@@ -124,8 +124,8 @@ const AP_Param::GroupInfo AC_AttitudeControl::var_info[] = {
     AP_GROUPINFO("RATE_P_MAX", 18, AC_AttitudeControl, _ang_vel_pitch_max, 0.0f),
 
     // @Param: RATE_Y_MAX
-    // @DisplayName: Angular Velocity Max for Pitch
-    // @Description: Maximum angular velocity in pitch axis
+    // @DisplayName: Angular Velocity Max for Yaw
+    // @Description: Maximum angular velocity in yaw axis
     // @Units: deg/s
     // @Range: 0 1080
     // @Increment: 1
@@ -161,18 +161,27 @@ void AC_AttitudeControl::set_throttle_out_unstabilized(float throttle_in, bool r
 // Ensure attitude controller have zero errors to relax rate controller output
 void AC_AttitudeControl::relax_attitude_controllers()
 {
+    // Initialize the attitude variables to the current attitude
     // TODO add _ahrs.get_quaternion()
     _attitude_target_quat.from_rotation_matrix(_ahrs.get_rotation_body_to_ned());
-    _attitude_target_ang_vel = _ahrs.get_gyro();
-    _attitude_target_euler_angle = Vector3f(_ahrs.roll, _ahrs.pitch, _ahrs.yaw);
+    _attitude_target_quat.to_euler(_attitude_target_euler_angle.x, _attitude_target_euler_angle.y, _attitude_target_euler_angle.z);
+    _attitude_ang_error.initialise();
 
-    // Set reference angular velocity used in angular velocity controller equal
-    // to the input angular velocity and reset the angular velocity integrators.
-    // This zeros the output of the angular velocity controller.
+    // Initialize the angular rate variables to the current rate
+    _attitude_target_ang_vel = _ahrs.get_gyro();
+    ang_vel_to_euler_rate(_attitude_target_euler_angle, _attitude_target_ang_vel, _attitude_target_euler_rate);
     _rate_target_ang_vel = _ahrs.get_gyro();
-    get_rate_roll_pid().reset_I();
-    get_rate_pitch_pid().reset_I();
-    get_rate_yaw_pid().reset_I();
+
+    // Initialize remaining variables
+    _thrust_error_angle = 0.0f;
+
+    // Reset the PID filters
+    get_rate_roll_pid().reset_filter();
+    get_rate_pitch_pid().reset_filter();
+    get_rate_yaw_pid().reset_filter();
+
+    // Reset the I terms
+    reset_rate_controller_I_terms();
 }
 
 void AC_AttitudeControl::reset_rate_controller_I_terms()
@@ -539,8 +548,8 @@ void AC_AttitudeControl::attitude_controller_run_quat()
 
     // Add feedforward term that attempts to ensure that roll and pitch errors rotate with the body frame rather than the reference frame.
     // todo: this should probably be a matrix that couples yaw as well.
-    _rate_target_ang_vel.x += attitude_error_vector.y * _ahrs.get_gyro().z;
-    _rate_target_ang_vel.y += -attitude_error_vector.x * _ahrs.get_gyro().z;
+    _rate_target_ang_vel.x += constrain_float(attitude_error_vector.y, -M_PI/4, M_PI/4)  * _ahrs.get_gyro().z;
+    _rate_target_ang_vel.y += -constrain_float(attitude_error_vector.x, -M_PI/4, M_PI/4) * _ahrs.get_gyro().z;
 
     ang_vel_limit(_rate_target_ang_vel, radians(_ang_vel_roll_max), radians(_ang_vel_pitch_max), radians(_ang_vel_yaw_max));
 
@@ -829,7 +838,7 @@ float AC_AttitudeControl::rate_target_to_motor_roll(float rate_actual_rads, floa
     float output = get_rate_roll_pid().get_p() + integrator + get_rate_roll_pid().get_d() + get_rate_roll_pid().get_ff(rate_target_rads);
 
     // Constrain output
-    return constrain_float(output, -1.0f, 1.0f);
+    return output;
 }
 
 // Run the pitch angular velocity PID controller and return the output
@@ -852,7 +861,7 @@ float AC_AttitudeControl::rate_target_to_motor_pitch(float rate_actual_rads, flo
     float output = get_rate_pitch_pid().get_p() + integrator + get_rate_pitch_pid().get_d() + get_rate_pitch_pid().get_ff(rate_target_rads);
 
     // Constrain output
-    return constrain_float(output, -1.0f, 1.0f);
+    return output;
 }
 
 // Run the yaw angular velocity PID controller and return the output
@@ -875,7 +884,7 @@ float AC_AttitudeControl::rate_target_to_motor_yaw(float rate_actual_rads, float
     float output = get_rate_yaw_pid().get_p() + integrator + get_rate_yaw_pid().get_d() + get_rate_yaw_pid().get_ff(rate_target_rads);
 
     // Constrain output
-    return constrain_float(output, -1.0f, 1.0f);
+    return output;
 }
 
 // Enable or disable body-frame feed forward
@@ -903,7 +912,7 @@ void AC_AttitudeControl::accel_limiting(bool enable_limits)
 float AC_AttitudeControl::get_althold_lean_angle_max() const
 {
     // convert to centi-degrees for public interface
-    return ToDeg(_althold_lean_angle_max) * 100.0f;
+    return MAX(ToDeg(_althold_lean_angle_max), AC_ATTITUDE_CONTROL_ANGLE_LIMIT_MIN) * 100.0f;
 }
 
 // Proportional controller with piecewise sqrt sections to constrain second derivative

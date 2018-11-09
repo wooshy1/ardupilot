@@ -487,7 +487,7 @@ public:
     AP_Int8 fbwa_tdrag_chan;
     AP_Int8 rangefinder_landing;
     AP_Int8 flap_slewrate;
-#if CONFIG_HAL_BOARD == HAL_BOARD_PX4
+#if HAVE_PX4_MIXER || HAL_WITH_IO_MCU
     AP_Int8 override_channel;
     AP_Int8 override_safety;
 #endif
@@ -545,6 +545,16 @@ public:
 #endif
 
     AP_Int32 flight_options;
+
+#ifdef ENABLE_SCRIPTING
+    AP_Scripting scripting;
+#endif // ENABLE_SCRIPTING
+
+    AP_Int8 takeoff_throttle_accel_count;
+
+#if LANDING_GEAR_ENABLED == ENABLED
+    AP_LandingGear landing_gear;
+#endif
 };
 
 extern const AP_Param::Info var_info[];

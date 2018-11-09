@@ -106,10 +106,10 @@ const struct UnitStructure log_Units[] = {
     { 'r', "rad" },           // radians
     { 'U', "deglongitude" },  // degrees of longitude
     { 'u', "ppm" },           // pulses per minute
-    { 'U', "us" },            // pulse width modulation in microseconds
     { 'v', "V" },             // Volt
     { 'P', "Pa" },            // Pascal
     { 'w', "Ohm" },           // Ohm
+    { 'Y', "us" },            // pulse width modulation in microseconds
     { 'z', "Hz" }             // Hertz
 };
 
@@ -1203,9 +1203,9 @@ Format characters in the format string for binary log messages
     { LOG_MESSAGE_MSG, sizeof(log_Message), \
       "MSG",  "QZ",     "TimeUS,Message", "s-", "F-"}, \
     { LOG_RCIN_MSG, sizeof(log_RCIN), \
-      "RCIN",  "QHHHHHHHHHHHHHH",     "TimeUS,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,C12,C13,C14", "sUUUUUUUUUUUUUU", "F--------------" }, \
+      "RCIN",  "QHHHHHHHHHHHHHH",     "TimeUS,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,C12,C13,C14", "sYYYYYYYYYYYYYY", "F--------------" }, \
     { LOG_RCOUT_MSG, sizeof(log_RCOUT), \
-      "RCOU",  "QHHHHHHHHHHHHHH",     "TimeUS,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,C12,C13,C14", "sUUUUUUUUUUUUUU", "F--------------"  }, \
+      "RCOU",  "QHHHHHHHHHHHHHH",     "TimeUS,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,C12,C13,C14", "sYYYYYYYYYYYYYY", "F--------------"  }, \
     { LOG_RSSI_MSG, sizeof(log_RSSI), \
       "RSSI",  "Qf",     "TimeUS,RXRSSI", "s-", "F-"  }, \
     { LOG_BARO_MSG, sizeof(log_BARO), \
@@ -1226,10 +1226,38 @@ Format characters in the format string for binary log messages
       "BAT", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS },  \
     { LOG_CURRENT2_MSG, sizeof(log_Current), \
       "BAT2", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS }, \
+    { LOG_CURRENT3_MSG, sizeof(log_Current), \
+      "BAT3", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS }, \
+    { LOG_CURRENT4_MSG, sizeof(log_Current), \
+      "BAT4", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS }, \
+    { LOG_CURRENT5_MSG, sizeof(log_Current), \
+      "BAT5", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS }, \
+    { LOG_CURRENT6_MSG, sizeof(log_Current), \
+      "BAT6", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS }, \
+    { LOG_CURRENT7_MSG, sizeof(log_Current), \
+      "BAT7", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS }, \
+    { LOG_CURRENT8_MSG, sizeof(log_Current), \
+      "BAT8", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS }, \
+    { LOG_CURRENT9_MSG, sizeof(log_Current), \
+      "BAT9", CURR_FMT,CURR_LABELS,CURR_UNITS,CURR_MULTS }, \
     { LOG_CURRENT_CELLS_MSG, sizeof(log_Current_Cells), \
       "BCL", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
     { LOG_CURRENT_CELLS2_MSG, sizeof(log_Current_Cells), \
       "BCL2", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
+    { LOG_CURRENT_CELLS3_MSG, sizeof(log_Current_Cells), \
+      "BCL3", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
+    { LOG_CURRENT_CELLS4_MSG, sizeof(log_Current_Cells), \
+      "BCL4", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
+    { LOG_CURRENT_CELLS5_MSG, sizeof(log_Current_Cells), \
+      "BCL5", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
+    { LOG_CURRENT_CELLS6_MSG, sizeof(log_Current_Cells), \
+      "BCL6", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
+    { LOG_CURRENT_CELLS7_MSG, sizeof(log_Current_Cells), \
+      "BCL7", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
+    { LOG_CURRENT_CELLS8_MSG, sizeof(log_Current_Cells), \
+      "BCL8", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
+    { LOG_CURRENT_CELLS9_MSG, sizeof(log_Current_Cells), \
+      "BCL9", CURR_CELL_FMT, CURR_CELL_LABELS, CURR_CELL_UNITS, CURR_CELL_MULTS }, \
 	{ LOG_ATTITUDE_MSG, sizeof(log_Attitude),\
       "ATT", "QccccCCCC", "TimeUS,DesRoll,Roll,DesPitch,Pitch,DesYaw,Yaw,ErrRP,ErrYaw", "sddddhhdh", "FBBBBBBBB" }, \
     { LOG_COMPASS_MSG, sizeof(log_Compass), \
@@ -1494,8 +1522,22 @@ enum LogMessages : uint8_t {
     LOG_ATTITUDE_MSG,
     LOG_CURRENT_MSG,
     LOG_CURRENT2_MSG,
+    LOG_CURRENT3_MSG,
+    LOG_CURRENT4_MSG,
+    LOG_CURRENT5_MSG,
+    LOG_CURRENT6_MSG,
+    LOG_CURRENT7_MSG,
+    LOG_CURRENT8_MSG,
+    LOG_CURRENT9_MSG,
     LOG_CURRENT_CELLS_MSG,
     LOG_CURRENT_CELLS2_MSG,
+    LOG_CURRENT_CELLS3_MSG,
+    LOG_CURRENT_CELLS4_MSG,
+    LOG_CURRENT_CELLS5_MSG,
+    LOG_CURRENT_CELLS6_MSG,
+    LOG_CURRENT_CELLS7_MSG,
+    LOG_CURRENT_CELLS8_MSG,
+    LOG_CURRENT_CELLS9_MSG,
     LOG_COMPASS_MSG,
     LOG_COMPASS2_MSG,
     LOG_COMPASS3_MSG,

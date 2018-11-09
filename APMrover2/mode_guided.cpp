@@ -45,7 +45,7 @@ void ModeGuided::update()
             }
             if (have_attitude_target) {
                 // run steering and throttle controllers
-                calc_steering_to_heading(_desired_yaw_cd, _desired_speed < 0);
+                calc_steering_to_heading(_desired_yaw_cd);
                 calc_throttle(calc_reduced_speed_for_turn_or_distance(_desired_speed), true, true);
             } else {
                 stop_vehicle();
@@ -90,10 +90,11 @@ float ModeGuided::get_distance_to_destination() const
 }
 
 // set desired location
-void ModeGuided::set_desired_location(const struct Location& destination)
+void ModeGuided::set_desired_location(const struct Location& destination,
+                                      float next_leg_bearing_cd)
 {
     // call parent
-    Mode::set_desired_location(destination);
+    Mode::set_desired_location(destination, next_leg_bearing_cd);
 
     // handle guided specific initialisation and logging
     _guided_mode = ModeGuided::Guided_WP;

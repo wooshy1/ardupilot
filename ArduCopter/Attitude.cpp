@@ -1,7 +1,6 @@
 #include "Copter.h"
 
-// get_pilot_desired_heading - transform pilot's yaw input into a
-// desired yaw rate
+// transform pilot's yaw input into a desired yaw rate
 // returns desired yaw rate in centi-degrees per second
 float Copter::get_pilot_desired_yaw_rate(int16_t stick_angle)
 {
@@ -230,7 +229,7 @@ float Copter::get_surface_tracking_climb_rate(int16_t target_rate, float current
 float Copter::get_avoidance_adjusted_climbrate(float target_rate)
 {
 #if AC_AVOID_ENABLED == ENABLED
-    avoid.adjust_velocity_z(pos_control->get_pos_z_p().kP(), pos_control->get_accel_z(), target_rate, G_Dt);
+    avoid.adjust_velocity_z(pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), target_rate, G_Dt);
     return target_rate;
 #else
     return target_rate;

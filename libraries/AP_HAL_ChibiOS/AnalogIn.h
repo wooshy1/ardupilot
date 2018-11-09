@@ -24,20 +24,20 @@
 // number of samples on each channel to gather on each DMA callback
 #define ADC_DMA_BUF_DEPTH 8
 
-#if HAL_USE_ADC == TRUE
+#if HAL_USE_ADC == TRUE && !defined(HAL_DISABLE_ADC_DRIVER)
 
 class ChibiOS::AnalogSource : public AP_HAL::AnalogSource {
 public:
     friend class ChibiOS::AnalogIn;
     AnalogSource(int16_t pin, float initial_value);
-    float read_average();
-    float read_latest();
-    void set_pin(uint8_t p);
-    float voltage_average();
-    float voltage_latest();
-    float voltage_average_ratiometric();
-    void set_stop_pin(uint8_t p) {}
-    void set_settle_time(uint16_t settle_time_ms) {}
+    float read_average() override;
+    float read_latest() override;
+    void set_pin(uint8_t p) override;
+    float voltage_average() override;
+    float voltage_latest() override;
+    float voltage_average_ratiometric() override;
+    void set_stop_pin(uint8_t p) override {}
+    void set_settle_time(uint16_t settle_time_ms) override {}
 
 private:
     // what value it has
@@ -50,14 +50,13 @@ private:
     float _sum_ratiometric;
     void _add_value(float v, float vcc5V);
     float _pin_scaler();
-    AP_HAL::Semaphore *_semaphore;
+    HAL_Semaphore _semaphore;
 };
 
 class ChibiOS::AnalogIn : public AP_HAL::AnalogIn {
 public:
     friend class AnalogSource;
     
-    AnalogIn();
     void init() override;
     AP_HAL::AnalogSource* channel(int16_t pin) override;
     void _timer_tick(void);
@@ -80,6 +79,7 @@ private:
     uint32_t _last_run;
     float _board_voltage;
     float _servorail_voltage;
+    float _rssi_voltage;
     uint16_t _power_flags;
     ADCConversionGroup adcgrpcfg;
 

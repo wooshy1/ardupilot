@@ -79,6 +79,7 @@
 #include <AC_Avoidance/AC_Avoid.h>
 #include <AP_Follow/AP_Follow.h>
 #include <AP_OSD/AP_OSD.h>
+#include <AP_WindVane/AP_WindVane.h>
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 #include <SITL/SITL.h>
 #endif
@@ -121,6 +122,7 @@ public:
     friend class ModeRTL;
     friend class ModeSmartRTL;
     friend class ModeFollow;
+    friend class ModeSimple;
 
     friend class RC_Channel_Rover;
     friend class RC_Channels_Rover;
@@ -194,7 +196,7 @@ private:
     AP_Navigation *nav_controller;
 
     // Mission library
-    AP_Mission mission{ahrs,
+    AP_Mission mission{
             FUNCTOR_BIND_MEMBER(&Rover::start_command, bool, const AP_Mission::Mission_Command&),
             FUNCTOR_BIND_MEMBER(&Rover::verify_command_callback, bool, const AP_Mission::Mission_Command&),
             FUNCTOR_BIND_MEMBER(&Rover::exit_mission, void)};
@@ -239,7 +241,7 @@ private:
     // Camera/Antenna mount tracking and stabilisation stuff
 #if MOUNT == ENABLED
     // current_loc uses the baro/gps solution for altitude rather than gps only.
-    AP_Mount camera_mount{ahrs, current_loc};
+    AP_Mount camera_mount{current_loc};
 #endif
 
     // true if initialisation has completed
@@ -263,6 +265,7 @@ private:
         uint32_t start_time;
         uint8_t triggered;
         uint32_t last_valid_rc_ms;
+        uint32_t last_heartbeat_ms;
     } failsafe;
 
     // notification object for LEDs, buzzers etc (parameter set to false disables external leds)
@@ -270,9 +273,6 @@ private:
 
     // true if we have a position estimate from AHRS
     bool have_position;
-
-    // the time when the last HEARTBEAT message arrived from a GCS
-    uint32_t last_heartbeat_ms;
 
     // obstacle detection information
     struct {
@@ -376,6 +376,7 @@ private:
     ModeRTL mode_rtl;
     ModeSmartRTL mode_smartrtl;
     ModeFollow mode_follow;
+    ModeSimple mode_simple;
 
     // cruise throttle and speed learning
     struct {
@@ -383,6 +384,18 @@ private:
         LowPassFilterFloat speed_filt = LowPassFilterFloat(2.0f);
         LowPassFilterFloat throttle_filt = LowPassFilterFloat(2.0f);
     } cruise_learn;
+
+    // sailboat variables
+    enum Sailboat_Tack {
+        TACK_PORT,
+        TACK_STARBOARD
+    };
+    struct {
+        bool tacking;                   // true when sailboat is in the process of tacking to a new heading
+        float tack_heading_rad;         // target heading in radians while tacking in either acro or autonomous modes
+        uint32_t auto_tack_request_ms;  // system time user requested tack in autonomous modes
+        uint32_t auto_tack_start_ms;    // system time when tack was started in autonomous mode
+    } sailboat;
 
 private:
 
@@ -425,10 +438,6 @@ private:
     bool verify_within_distance();
     void do_change_speed(const AP_Mission::Mission_Command& cmd);
     void do_set_home(const AP_Mission::Mission_Command& cmd);
-#if CAMERA == ENABLED
-    void do_digicam_configure(const AP_Mission::Mission_Command& cmd);
-    void do_digicam_control(const AP_Mission::Mission_Command& cmd);
-#endif
     void do_set_reverse(const AP_Mission::Mission_Command& cmd);
 
     // commands.cpp
@@ -482,6 +491,7 @@ private:
     void Log_Write_GuidedTarget(uint8_t target_type, const Vector3f& pos_target, const Vector3f& vel_target);
     void Log_Write_Nav_Tuning();
     void Log_Write_Proximity();
+    void Log_Write_Sail();
     void Log_Write_Startup(uint8_t type);
     void Log_Write_Steering();
     void Log_Write_Throttle();
@@ -501,8 +511,19 @@ private:
     void init_rc_out();
     void rudder_arm_disarm_check();
     void read_radio();
-    void control_failsafe(uint16_t pwm);
+    void radio_failsafe_check(uint16_t pwm);
     bool trim_radio();
+
+    // sailboat.cpp
+    void sailboat_update_mainsail(float desired_speed);
+    float sailboat_get_VMG() const;
+    void sailboat_handle_tack_request_acro();
+    float sailboat_get_tack_heading_rad() const;
+    void sailboat_handle_tack_request_auto();
+    void sailboat_clear_tack();
+    bool sailboat_tacking() const;
+    bool sailboat_use_indirect_route(float desired_heading_cd) const;
+    float sailboat_calc_heading(float desired_heading_cd);
 
     // sensors.cpp
     void init_compass(void);
@@ -516,6 +537,7 @@ private:
     void accel_cal_update(void);
     void read_rangefinders(void);
     void init_proximity();
+    void read_airspeed();
     void update_sensor_status_flags(void);
 
     // Steering.cpp
@@ -576,6 +598,9 @@ public:
     // frame type
     uint8_t get_frame_type() { return g2.frame_type.get(); }
     AP_WheelRateControl& get_wheel_rate_control() { return g2.wheel_rate_control; }
+
+    // Simple mode
+    float simple_sin_yaw;
 };
 
 extern const AP_HAL::HAL& hal;

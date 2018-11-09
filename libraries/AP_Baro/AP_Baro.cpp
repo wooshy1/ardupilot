@@ -209,10 +209,8 @@ void AP_Baro::calibrate(bool save)
         hal.scheduler->delay(100);
     }
 
-    // now average over 5 values for the ground pressure and
-    // temperature settings
+    // now average over 5 values for the ground pressure settings
     float sum_pressure[BARO_MAX_INSTANCES] = {0};
-    float sum_temperature[BARO_MAX_INSTANCES] = {0};
     uint8_t count[BARO_MAX_INSTANCES] = {0};
     const uint8_t num_samples = 5;
 
@@ -228,7 +226,6 @@ void AP_Baro::calibrate(bool save)
         for (uint8_t i=0; i<_num_sensors; i++) {
             if (healthy(i)) {
                 sum_pressure[i] += sensors[i].pressure;
-                sum_temperature[i] += sensors[i].temperature;
                 count[i] += 1;
             }
         }
@@ -247,11 +244,15 @@ void AP_Baro::calibrate(bool save)
     _guessed_ground_temperature = get_external_temperature();
 
     // panic if all sensors are not calibrated
+    uint8_t num_calibrated = 0;
     for (uint8_t i=0; i<_num_sensors; i++) {
         if (sensors[i].calibrated) {
-            gcs().send_text(MAV_SEVERITY_INFO, "Barometer calibration complete");
-            return;
+            gcs().send_text(MAV_SEVERITY_INFO, "Barometer %u calibration complete", i+1);
+            num_calibrated++;
         }
+    }
+    if (num_calibrated) {
+        return;
     }
     AP_HAL::panic("AP_Baro: all sensors uncalibrated");
 }
@@ -263,6 +264,11 @@ void AP_Baro::calibrate(bool save)
 */
 void AP_Baro::update_calibration()
 {
+    const uint32_t now = AP_HAL::millis();
+    const bool do_notify = now - _last_notify_ms > 10000;
+    if (do_notify) {
+        _last_notify_ms = now;
+    }
     for (uint8_t i=0; i<_num_sensors; i++) {
         if (healthy(i)) {
             float corrected_pressure = get_pressure(i) + sensors[i].p_correction;
@@ -270,10 +276,8 @@ void AP_Baro::update_calibration()
         }
 
         // don't notify the GCS too rapidly or we flood the link
-        uint32_t now = AP_HAL::millis();
-        if (now - _last_notify_ms > 10000) {
+        if (do_notify) {
             sensors[i].ground_pressure.notify();
-            _last_notify_ms = now;
         }
     }
 
@@ -315,7 +319,11 @@ float AP_Baro::get_EAS2TAS(void)
     // provides a more consistent reading then trying to estimate a complete
     // ISA model atmosphere
     float tempK = get_ground_temperature() + C_TO_KELVIN - ISA_LAPSE_RATE * altitude;
-    _EAS2TAS = safe_sqrt(SSL_AIR_DENSITY / ((float)get_pressure() / (ISA_GAS_CONSTANT * tempK)));
+    const float eas2tas_squared = SSL_AIR_DENSITY / ((float)get_pressure() / (ISA_GAS_CONSTANT * tempK));
+    if (!is_positive(eas2tas_squared)) {
+        return 1.0;
+    }
+    _EAS2TAS = sqrtf(eas2tas_squared);
     _last_altitude_EAS2TAS = altitude;
     return _EAS2TAS;
 }

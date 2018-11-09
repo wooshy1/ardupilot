@@ -17,7 +17,13 @@ parser.add_argument(
 args = parser.parse_args()
 
 # output variables for each pin
-vtypes = ['MODER', 'OTYPER', 'OSPEEDR', 'PUPDR', 'ODR', 'AFRL', 'AFRH']
+f4f7_vtypes = ['MODER', 'OTYPER', 'OSPEEDR', 'PUPDR', 'ODR', 'AFRL', 'AFRH']
+f1_vtypes = ['CRL', 'CRH', 'ODR']
+f1_input_sigs = ['RX', 'MISO', 'CTS']
+f1_output_sigs = ['TX', 'MOSI', 'SCK', 'RTS', 'CH1', 'CH2', 'CH3', 'CH4']
+af_labels = ['USART', 'UART', 'SPI', 'I2C', 'SDIO', 'SDMMC', 'OTG', 'JT', 'TIM', 'CAN']
+
+vtypes = []
 
 # number of pins in each port
 pincount = {
@@ -96,10 +102,14 @@ def get_mcu_lib(mcu):
 
 def setup_mcu_type_defaults():
     '''setup defaults for given mcu type'''
-    global pincount, ports, portmap
+    global pincount, ports, portmap, vtypes
     lib = get_mcu_lib(mcu_type)
     if hasattr(lib, 'pincount'):
         pincount = lib.pincount
+    if mcu_series == "STM32F100":
+        vtypes = f1_vtypes
+    else:
+        vtypes = f4f7_vtypes
     ports = pincount.keys()
     # setup default as input pins
     for port in ports:
@@ -110,14 +120,21 @@ def setup_mcu_type_defaults():
 def get_alt_function(mcu, pin, function):
     '''return alternative function number for a pin'''
     lib = get_mcu_lib(mcu)
-    alt_map = lib.AltFunction_map
+
+    if hasattr(lib, "AltFunction_map"):
+        alt_map = lib.AltFunction_map
+    else:
+        # just check if Alt Func is available or not
+        for l in af_labels:
+            if function.startswith(l):
+                return 0
+        return None
 
     if function and function.endswith("_RTS") and (
             function.startswith('USART') or function.startswith('UART')):
         # we do software RTS
         return None
 
-    af_labels = ['USART', 'UART', 'SPI', 'I2C', 'SDIO', 'SDMMC', 'OTG', 'JT', 'TIM', 'CAN']
     for l in af_labels:
         if function.startswith(l):
             s = pin + ":" + function
@@ -152,6 +169,7 @@ class generic_pin(object):
     '''class to hold pin definition'''
 
     def __init__(self, port, pin, label, type, extra):
+        global mcu_series
         self.portpin = "P%s%u" % (port, pin)
         self.port = port
         self.pin = pin
@@ -159,6 +177,23 @@ class generic_pin(object):
         self.type = type
         self.extra = extra
         self.af = None
+        if type == 'OUTPUT':
+            self.sig_dir = 'OUTPUT'
+        else:
+            self.sig_dir = 'INPUT'
+        if mcu_series == "STM32F100" and self.label is not None:
+            self.f1_pin_setup()
+
+    def f1_pin_setup(self):
+        for l in af_labels:
+            if self.label.startswith(l):
+                if self.label.endswith(tuple(f1_input_sigs)):
+                    self.sig_dir = 'INPUT'
+                    self.extra.append('FLOATING')
+                elif self.label.endswith(tuple(f1_output_sigs)):
+                    self.sig_dir = 'OUTPUT'
+                else:
+                    error("Unknown signal type %s:%s for %s!" % (self.portpin, self.label, mcu_type))
 
     def has_extra(self, v):
         '''return true if we have the given extra token'''
@@ -253,8 +288,26 @@ class generic_pin(object):
                 v = e
         return "PIN_PUPDR_%s(%uU)" % (v, self.pin)
 
+    def get_ODR_F1(self):
+        '''return one of LOW, HIGH'''
+        values = ['LOW', 'HIGH']
+        v = 'HIGH'
+        if self.type == 'OUTPUT':
+            v = 'LOW'
+        for e in self.extra:
+            if e in values:
+                v = e
+        #for some controllers input pull up down is selected by ODR
+        if self.type == "INPUT":
+            v = 'LOW'
+            if 'PULLUP' in self.extra:
+                v = "HIGH"
+        return "PIN_ODR_%s(%uU)" % (v, self.pin)
+
     def get_ODR(self):
         '''return one of LOW, HIGH'''
+        if mcu_series == "STM32F100":
+            return self.get_ODR_F1()
         values = ['LOW', 'HIGH']
         v = 'HIGH'
         for e in self.extra:
@@ -280,6 +333,85 @@ class generic_pin(object):
         if self.pin < 8:
             return None
         return self.get_AFIO()
+
+    def get_CR_F1(self):
+        '''return CR FLAGS for STM32F1xx'''
+        #Check Speed
+        if self.sig_dir != "INPUT" or self.af is not None:
+            speed_values = ['SPEED_LOW', 'SPEED_MEDIUM', 'SPEED_HIGH']
+            v = 'SPEED_MEDIUM'
+            for e in self.extra:
+                if e in speed_values:
+                    v = e
+            speed_str = "PIN_%s(%uU) |" % (v, self.pin)
+        else:
+            speed_str = ""
+        if self.af is not None:
+            if self.label.endswith('_RX'):
+                # uart RX is configured as a input, and can be pullup, pulldown or float
+                if 'PULLUP' in self.extra or 'PULLDOWN' in self.extra:
+                    v = 'PUD'
+                else:
+                    v = "NOPULL"
+            else:
+                v = "AF_PP"
+        elif self.sig_dir == 'OUTPUT':
+            if 'OPENDRAIN' in self.extra:
+                v = 'OUTPUT_OD'
+            else:
+                v = "OUTPUT_PP"
+        elif self.type.startswith('ADC'):
+            v = "ANALOG"
+        else:
+            v = "PUD"
+            if 'FLOATING' in self.extra:
+                v = "NOPULL"
+        mode_str = "PIN_MODE_%s(%uU)" % (v, self.pin)
+        return "%s %s" % (speed_str, mode_str)
+
+    def get_CR(self):
+        '''return CR FLAGS'''
+        if mcu_series == "STM32F100":
+            return self.get_CR_F1()
+        if self.sig_dir != "INPUT":
+            speed_values = ['SPEED_LOW', 'SPEED_MEDIUM', 'SPEED_HIGH']
+            v = 'SPEED_MEDIUM'
+            for e in self.extra:
+                if e in speed_values:
+                    v = e
+            speed_str = "PIN_%s(%uU) |" % (v, self.pin)
+        else:
+            speed_str = ""
+        #Check Alternate function
+        if self.type.startswith('I2C'):
+            v = "AF_OD"
+        elif self.sig_dir == 'OUTPUT':
+            if self.af is not None:
+                v = "AF_PP"
+            else:
+                v = "OUTPUT_PP"
+        elif self.type.startswith('ADC'):
+            v = "ANALOG"
+        elif self.is_CS():
+            v = "OUTPUT_PP"
+        elif self.is_RTS():
+            v = "OUTPUT_PP"
+        else:
+            v = "PUD"
+            if 'FLOATING' in self.extra:
+                v = "NOPULL"
+        mode_str = "PIN_MODE_%s(%uU)" % (v, self.pin)
+        return "%s %s" % (speed_str, mode_str)
+
+    def get_CRH(self):
+        if self.pin < 8:
+            return None
+        return self.get_CR()
+
+    def get_CRL(self):
+        if self.pin >= 8:
+            return None
+        return self.get_CR()
 
     def __str__(self):
         str = ''
@@ -384,6 +516,22 @@ def write_mcu_config(f):
         f.write('#define STM32_USB_USE_OTG2                  TRUE\n')
     if have_type_prefix('CAN'):
         enable_can(f)
+
+    if get_config('PROCESS_STACK', required=False):
+        env_vars['PROCESS_STACK'] = get_config('PROCESS_STACK')
+    else:
+        env_vars['PROCESS_STACK'] = "0x2000"
+
+    if get_config('MAIN_STACK', required=False):
+        env_vars['MAIN_STACK'] = get_config('MAIN_STACK')
+    else:
+        env_vars['MAIN_STACK'] = "0x400"
+
+    if get_config('IOMCU_FW', required=False):
+        env_vars['IOMCU_FW'] = get_config('IOMCU_FW')
+    else:
+        env_vars['IOMCU_FW'] = 0
+
     # write any custom STM32 defines
     for d in alllines:
         if d.startswith('STM32_'):
@@ -428,6 +576,18 @@ def write_mcu_config(f):
 
     lib = get_mcu_lib(mcu_type)
     build_info = lib.build
+
+    if mcu_series == "STM32F100":
+        cortex = "cortex-m3"        
+        env_vars['CPU_FLAGS'] = ["-mcpu=%s" % cortex]
+        build_info['MCU'] = cortex
+    else:
+        cortex = "cortex-m4"
+        env_vars['CPU_FLAGS'] = [ "-mcpu=%s" % cortex, "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"]
+        build_info['MCU'] = cortex
+        if not args.bootloader:
+            env_vars['CPU_FLAGS'].append('-u_printf_float')
+            build_info['ENV_UDEFS'] = "-DCHPRINTF_USE_FLOAT=1"
     # setup build variables
     for v in build_info.keys():
         build_flags.append('%s=%s' % (v, build_info[v]))
@@ -508,7 +668,7 @@ def copy_common_linkerscript(outdir, hwdef):
 def write_USB_config(f):
     '''write USB config defines'''
     if not have_type_prefix('OTG'):
-        return;
+        return
     f.write('// USB configuration\n')
     f.write('#define HAL_USB_VENDOR_ID %s\n' % get_config('USB_VENDOR', default=0x0483)) # default to ST
     f.write('#define HAL_USB_PRODUCT_ID %s\n' % get_config('USB_PRODUCT', default=0x5740))
@@ -649,7 +809,11 @@ def write_UART_config(f):
                     (dev, dev, rts_line))
     f.write('#define HAL_UART_DEVICE_LIST %s\n\n' % ','.join(devlist))
     if not need_uart_driver and not args.bootloader:
-        f.write('#define HAL_USE_SERIAL FALSE\n')
+        f.write('''
+#ifndef HAL_USE_SERIAL
+#define HAL_USE_SERIAL FALSE
+#endif
+''')
 
 def write_UART_config_bootloader(f):
     '''write UART config defines'''
@@ -914,11 +1078,15 @@ def write_GPIO_config(f):
     '''write GPIO config defines'''
     f.write('// GPIO config\n')
     gpios = []
+    gpioset = set()
     for l in bylabel:
         p = bylabel[l]
         gpio = p.extra_value('GPIO', type=int)
         if gpio is None:
             continue
+        if gpio in gpioset:
+            error("Duplicate GPIO value %u" % gpio)
+        gpioset.add(gpio)
         # see if it is also a PWM pin
         pwm = p.extra_value('PWM', type=int, default=0)
         port = p.port
@@ -995,7 +1163,10 @@ def write_peripheral_enable(f):
     f.write('// peripherals enabled\n')
     for type in sorted(bytype.keys()):
         if type.startswith('USART') or type.startswith('UART'):
-            f.write('#define STM32_SERIAL_USE_%-6s             TRUE\n' % type)
+            dstr = 'STM32_SERIAL_USE_%-6s' % type
+            f.write('#ifndef %s\n' % dstr)
+            f.write('#define %s TRUE\n' % dstr)
+            f.write('#endif\n')
         if type.startswith('SPI'):
             f.write('#define STM32_SPI_USE_%s                  TRUE\n' % type)
         if type.startswith('OTG'):
@@ -1061,12 +1232,36 @@ def write_hwdef_header(outfilename):
     if len(romfs) > 0:
         f.write('#define HAL_HAVE_AP_ROMFS_EMBEDDED_H 1\n')
 
-    f.write('''
+    if mcu_series == 'STM32F100':
+        f.write('''
 /*
  * I/O ports initial setup, this configuration is established soon after reset
  * in the initialization code.
  * Please refer to the STM32 Reference Manual for details.
  */
+#define PIN_MODE_OUTPUT_PP(n)         (0 << (((n) & 7) * 4))
+#define PIN_MODE_OUTPUT_OD(n)         (4 << (((n) & 7) * 4))
+#define PIN_MODE_AF_PP(n)             (8 << (((n) & 7) * 4)) 
+#define PIN_MODE_AF_OD(n)             (12 << (((n) & 7) * 4))
+#define PIN_MODE_ANALOG(n)            (0 << (((n) & 7) * 4))
+#define PIN_MODE_NOPULL(n)            (4 << (((n) & 7) * 4))
+#define PIN_MODE_PUD(n)               (8 << (((n) & 7) * 4)) 
+#define PIN_SPEED_MEDIUM(n)           (1 << (((n) & 7) * 4))
+#define PIN_SPEED_LOW(n)              (2 << (((n) & 7) * 4))
+#define PIN_SPEED_HIGH(n)             (3 << (((n) & 7) * 4))
+#define PIN_ODR_HIGH(n)               (1 << (((n) & 15)))
+#define PIN_ODR_LOW(n)                (0 << (((n) & 15)))
+#define PIN_PULLUP(n)                 (1 << (((n) & 15)))
+#define PIN_PULLDOWN(n)               (0 << (((n) & 15)))
+#define PIN_UNDEFINED(n)                PIN_INPUT_PUD(n)
+''')
+    else:
+        f.write('''
+/*
+* I/O ports initial setup, this configuration is established soon after reset
+* in the initialization code.
+* Please refer to the STM32 Reference Manual for details.
+*/
 #define PIN_MODE_INPUT(n)           (0U << ((n) * 2U))
 #define PIN_MODE_OUTPUT(n)          (1U << ((n) * 2U))
 #define PIN_MODE_ALTERNATE(n)       (2U << ((n) * 2U))
@@ -1168,7 +1363,7 @@ def write_env_py(filename):
     if os.path.exists(defaults_filename) and not args.bootloader:
         print("Adding defaults.parm")
         env_vars['DEFAULT_PARAMETERS'] = os.path.abspath(defaults_filename)
-    
+
     # CHIBIOS_BUILD_FLAGS is passed to the ChibiOS makefile
     env_vars['CHIBIOS_BUILD_FLAGS'] = ' '.join(build_flags)
     pickle.dump(env_vars, open(filename, "wb"))
@@ -1197,8 +1392,9 @@ def process_line(line):
     
     config[a[0]] = a[1:]
     if a[0] == 'MCU':
-        global mcu_type
+        global mcu_type, mcu_series
         mcu_type = a[2]
+        mcu_series = a[1]
         setup_mcu_type_defaults()
     if a[0].startswith('P') and a[0][1] in ports:
         # it is a port/pin definition

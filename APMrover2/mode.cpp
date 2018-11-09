@@ -47,6 +47,9 @@ bool Mode::enter()
     // initialisation common to all modes
     if (ret) {
         set_reversed(false);
+
+        // clear sailboat tacking flags
+        rover.sailboat_clear_tack();
     }
 
     return ret;
@@ -145,6 +148,21 @@ void Mode::get_pilot_desired_lateral(float &lateral_out)
     lateral_out = rover.channel_lateral->get_control_in();
 }
 
+// decode pilot's input and return heading_out (in cd) and speed_out (in m/s)
+void Mode::get_pilot_desired_heading_and_speed(float &heading_out, float &speed_out)
+{
+    // get steering and throttle in the -1 to +1 range
+    const float desired_steering = constrain_float(rover.channel_steer->norm_input_dz(), -1.0f, 1.0f);
+    const float desired_throttle = constrain_float(rover.channel_throttle->norm_input_dz(), -1.0f, 1.0f);
+
+    // calculate angle of input stick vector
+    heading_out = wrap_360_cd(atan2f(desired_steering, desired_throttle) * DEGX100);
+
+    // calculate throttle using magnitude of input stick vector
+    const float throttle = MIN(safe_sqrt(sq(desired_throttle) + sq(desired_steering)), 1.0f);
+    speed_out = throttle * calc_speed_max(g.speed_cruise, g.throttle_cruise * 0.01f);
+}
+
 // set desired location
 void Mode::set_desired_location(const struct Location& destination, float next_leg_bearing_cd)
 {
@@ -239,6 +257,15 @@ void Mode::set_reversed(bool value)
     _reversed = value;
 }
 
+// handle tacking request (from auxiliary switch) in sailboats
+void Mode::handle_tack_request()
+{
+    // autopilot modes handle tacking
+    if (is_autopilot_mode()) {
+        rover.sailboat_handle_tack_request_auto();
+    }
+}
+
 void Mode::calc_throttle(float target_speed, bool nudge_allowed, bool avoidance_enabled)
 {
     // add in speed nudging
@@ -270,6 +297,9 @@ void Mode::calc_throttle(float target_speed, bool nudge_allowed, bool avoidance_
         rover.balancebot_pitch_control(throttle_out);
     }
 
+    // update mainsail position if present
+    rover.sailboat_update_mainsail(target_speed);
+
     // send to motor
     g2.motors.set_throttle(throttle_out);
 }
@@ -285,6 +315,9 @@ bool Mode::stop_vehicle()
     if (rover.is_balancebot()) {
         rover.balancebot_pitch_control(throttle_out);
     }
+
+    // relax mainsail if present
+    g2.motors.set_mainsail(100.0f);
 
     // send to motor
     g2.motors.set_throttle(throttle_out);
@@ -414,7 +447,11 @@ void Mode::calc_steering_to_waypoint(const struct Location &origin, const struct
     }
     _yaw_error_cd = wrap_180_cd(desired_heading - ahrs.yaw_sensor);
 
-    if (rover.use_pivot_steering(_yaw_error_cd)) {
+    if (rover.sailboat_use_indirect_route(desired_heading)) {
+        // sailboats use heading controller when tacking upwind
+        desired_heading = rover.sailboat_calc_heading(desired_heading);
+        calc_steering_to_heading(desired_heading, g2.pivot_turn_rate);
+    } else if (rover.use_pivot_steering(_yaw_error_cd)) {
         // for pivot turns use heading controller
         calc_steering_to_heading(desired_heading, g2.pivot_turn_rate);
     } else {
@@ -446,14 +483,15 @@ void Mode::calc_steering_from_lateral_acceleration(float lat_accel, bool reverse
 }
 
 // calculate steering output to drive towards desired heading
-void Mode::calc_steering_to_heading(float desired_heading_cd, float rate_max, bool reversed)
+// rate_max is a maximum turn rate in deg/s.  set to zero to use default turn rate limits
+void Mode::calc_steering_to_heading(float desired_heading_cd, float rate_max_degs)
 {
     // calculate yaw error so it can be used for reporting and slowing the vehicle
     _yaw_error_cd = wrap_180_cd(desired_heading_cd - ahrs.yaw_sensor);
 
     // call heading controller
     const float steering_out = attitude_control.get_steering_out_heading(radians(desired_heading_cd*0.01f),
-                                                                         rate_max,
+                                                                         radians(rate_max_degs),
                                                                          g2.motors.limit.steer_left,
                                                                          g2.motors.limit.steer_right,
                                                                          rover.G_Dt);

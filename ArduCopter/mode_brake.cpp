@@ -13,8 +13,8 @@ bool Copter::ModeBrake::init(bool ignore_checks)
         wp_nav->init_brake_target(BRAKE_MODE_DECEL_RATE);
 
         // initialize vertical speed and acceleration
-        pos_control->set_speed_z(BRAKE_MODE_SPEED_Z, BRAKE_MODE_SPEED_Z);
-        pos_control->set_accel_z(BRAKE_MODE_DECEL_RATE);
+        pos_control->set_max_speed_z(BRAKE_MODE_SPEED_Z, BRAKE_MODE_SPEED_Z);
+        pos_control->set_max_accel_z(BRAKE_MODE_DECEL_RATE);
 
         // initialise position and desired velocity
         if (!pos_control->is_active_z()) {
@@ -56,7 +56,7 @@ void Copter::ModeBrake::run()
     motors->set_desired_spool_state(AP_Motors::DESIRED_THROTTLE_UNLIMITED);
 
     // run brake controller
-    wp_nav->update_brake(ekfGndSpdLimit, ekfNavVelGainScaler);
+    wp_nav->update_brake();
 
     // call attitude controller
     attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(wp_nav->get_roll(), wp_nav->get_pitch(), 0.0f);

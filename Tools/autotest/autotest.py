@@ -23,6 +23,7 @@ import ardusub
 import quadplane
 import balancebot
 
+import examples
 from pysim import util
 from pymavlink import mavutil
 from pymavlink.generator import mavtemplate
@@ -131,7 +132,7 @@ def build_devrelease():
 
 def build_examples():
     """Build examples."""
-    for target in 'px4-v2', 'navio':
+    for target in 'fmuv2', 'px4-v2', 'navio', 'linux':
         print("Running build.examples for %s" % target)
         try:
             util.build_examples(target)
@@ -306,6 +307,7 @@ def run_step(step):
         "debug": opts.debug,
         "clean": not opts.no_clean,
         "configure": not opts.no_configure,
+        "extra_configure_args": opts.waf_configure_args,
     }
 
     vehicle_binary = None
@@ -390,8 +392,11 @@ def run_step(step):
     if step == 'build.DevRelease':
         return build_devrelease()
 
-    if step == 'build.Examples':
+    if step == 'build.examples':
         return build_examples()
+
+    if step == 'run.examples':
+        return examples.run_examples(debug=opts.debug, valgrind=False, gdb=False)
 
     if step == 'build.Parameters':
         return build_parameters()
@@ -517,6 +522,8 @@ def check_logs(step):
         vehicle = step[4:]
     elif step.startswith('drive.'):
         vehicle = step[6:]
+    elif step.startswith('dive.'):
+        vehicle = step[5:]
     else:
         return
     logs = glob.glob("logs/*.BIN")
@@ -622,6 +629,12 @@ if __name__ == "__main__":
                            action='store_true',
                            help='do not configure before building',
                            dest="no_configure")
+    group_build.add_option("", "--waf-configure-args",
+                           action="append",
+                           dest="waf_configure_args",
+                           type="string",
+                           default=[],
+                           help="extra arguments passed to waf in configure")
     group_build.add_option("-j", default=None, type='int', help='build CPUs')
     group_build.add_option("--no-clean",
                            default=False,
@@ -665,11 +678,12 @@ if __name__ == "__main__":
         'build.All',
         'build.Binaries',
         # 'build.DevRelease',
-        'build.Examples',
         'build.Parameters',
 
         'build.unit_tests',
         'run.unit_tests',
+        'build.examples',
+        'run.examples',
 
         'build.ArduPlane',
         'defaults.ArduPlane',

@@ -17,6 +17,8 @@ void Tracker::init_tracker()
                         AP::fwversion().fw_string,
                         (unsigned)hal.util->available_memory());
 
+    init_capabilities();
+
     // Check the EEPROM format version before loading any parameters from EEPROM
     load_parameters();
 
@@ -100,8 +102,6 @@ void Tracker::init_tracker()
         get_home_eeprom(current_loc);
     }
 
-    init_capabilities();
-
     gcs().send_text(MAV_SEVERITY_INFO,"Ready to track");
     hal.scheduler->delay(1000); // Why????
 
@@ -158,9 +158,6 @@ void Tracker::set_home(struct Location temp)
     if (ahrs.get_origin(ekf_origin)) {
         ahrs.set_home(temp);
     }
-
-    gcs().send_home();
-    gcs().send_ekf_origin();
 }
 
 void Tracker::arm_servos()

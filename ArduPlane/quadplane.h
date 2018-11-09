@@ -186,9 +186,9 @@ private:
     void init_stabilize(void);
     void control_stabilize(void);
 
+    void check_attitude_relax(void);
     void init_hover(void);
     void control_hover(void);
-    void run_rate_controller(void);
 
     void init_loiter(void);
     void init_land(void);
@@ -204,7 +204,7 @@ private:
     float desired_auto_yaw_rate_cds(void) const;
 
     bool should_relax(void);
-    void motors_output(void);
+    void motors_output(bool run_rate_controller = true);
     void Log_Write_QControl_Tuning();
     float landing_descent_rate_cms(float height_above_ground) const;
     
@@ -304,6 +304,9 @@ private:
 
     // pitch when we enter loiter mode
     int32_t loiter_initial_pitch_cd;
+
+    // when did we last run the attitude controller?
+    uint32_t last_att_control_ms;
 
     // true if we have reached the airspeed threshold for transition
     enum {
@@ -450,6 +453,7 @@ private:
         OPTION_LEVEL_TRANSITION=(1<<0),
         OPTION_ALLOW_FW_TAKEOFF=(1<<1),
         OPTION_ALLOW_FW_LAND=(1<<2),
+        OPTION_RESPECT_TAKEOFF_FRAME=(1<<3),
     };
 
     /*

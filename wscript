@@ -71,6 +71,11 @@ def options(opt):
         action='store_true',
         default=False,
         help='enable OS level asserts.')
+
+    g.add_option('--use-nuttx-iofw',
+        action='store_true',
+        default=False,
+        help='use old NuttX IO firmware for IOMCU')
     
     g.add_option('--bootloader',
         action='store_true',
@@ -101,6 +106,11 @@ submodules at specific revisions.
     g.add_option('--default-parameters',
         default=None,
         help='set default parameters to embed in the firmware')
+
+    g.add_option('--enable-math-check-indexes',
+                 action='store_true',
+                 default=False,
+                 help="Enable checking of math indexes")
 
     g = opt.ap_groups['linux']
 
@@ -147,6 +157,10 @@ configuration in order to save typing.
                  default=False,
                  help="Enable SFML graphics library")
 
+    g.add_option('--enable-scripting', action='store_true',
+                 default=False,
+                 help="Enable onboard scripting engine")
+
     g.add_option('--static',
         action='store_true',
         default=False,
@@ -184,6 +198,7 @@ def configure(cfg):
     cfg.env.DEBUG = cfg.options.debug
     cfg.env.ENABLE_ASSERTS = cfg.options.enable_asserts
     cfg.env.BOOTLOADER = cfg.options.bootloader
+    cfg.env.USE_NUTTX_IOFW = cfg.options.use_nuttx_iofw
 
     # Allow to differentiate our build from the make build
     cfg.define('WAF_BUILD', 1)
@@ -230,6 +245,12 @@ def configure(cfg):
 
     cfg.start_msg('Unit tests')
     if cfg.env.HAS_GTEST:
+        cfg.end_msg('enabled')
+    else:
+        cfg.end_msg('disabled', color='YELLOW')
+
+    cfg.start_msg('Scripting')
+    if cfg.options.enable_scripting:
         cfg.end_msg('enabled')
     else:
         cfg.end_msg('disabled', color='YELLOW')
@@ -390,7 +411,9 @@ def _build_recursion(bld):
         common_dirs_patterns,
         excl=common_dirs_excl,
     )
-
+    if bld.env.IOMCU_FW is not None:
+        if bld.env.IOMCU_FW:
+            dirs_to_recurse.append('libraries/AP_IOMCU/iofirmware')
     for p in hal_dirs_patterns:
         dirs_to_recurse += collect_dirs_to_recurse(
             bld,
@@ -466,7 +489,7 @@ ardupilotwaf.build_command('check-all',
     doc='shortcut for `waf check --alltests`',
 )
 
-for name in ('antennatracker', 'copter', 'heli', 'plane', 'rover', 'sub', 'bootloader'):
+for name in ('antennatracker', 'copter', 'heli', 'plane', 'rover', 'sub', 'bootloader','iofirmware'):
     ardupilotwaf.build_command(name,
         program_group_list=name,
         doc='builds %s programs' % name,

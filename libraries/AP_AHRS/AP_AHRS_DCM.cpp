@@ -22,6 +22,7 @@
  */
 #include "AP_AHRS.h"
 #include <AP_HAL/AP_HAL.h>
+#include <GCS_MAVLink/GCS.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -72,7 +73,7 @@ AP_AHRS_DCM::update(bool skip_ins_update)
     // otherwise we may move too far. This happens when arming motors
     // in ArduCopter
     if (delta_t > 0.2f) {
-        memset(&_ra_sum[0], 0, sizeof(_ra_sum));
+        memset((void *)&_ra_sum[0], 0, sizeof(_ra_sum));
         _ra_deltat = 0;
         return;
     }
@@ -674,8 +675,14 @@ AP_AHRS_DCM::drift_correction(float deltat)
 
         // keep last airspeed estimate for dead-reckoning purposes
         Vector3f airspeed = velocity - _wind;
-        airspeed.z = 0;
-        _last_airspeed = airspeed.length();
+
+        // rotate vector to body frame
+        const Matrix3f &rot = get_rotation_body_to_ned();
+        airspeed = rot.mul_transpose(airspeed);
+
+        // take positive component in X direction. This mimics a pitot
+        // tube
+        _last_airspeed = MAX(airspeed.x, 0);
     }
 
     if (have_gps()) {
@@ -883,7 +890,7 @@ AP_AHRS_DCM::drift_correction(float deltat)
     }
 
     // zero our accumulator ready for the next GPS step
-    memset(&_ra_sum[0], 0, sizeof(_ra_sum));
+    memset((void *)&_ra_sum[0], 0, sizeof(_ra_sum));
     _ra_deltat = 0;
     _ra_sum_start = last_correction_time;
 
@@ -1024,6 +1031,13 @@ void AP_AHRS_DCM::set_home(const Location &loc)
     _home = loc;
     _home.options = 0;
     _home_is_set = true;
+
+    // log ahrs home and ekf origin dataflash
+    Log_Write_Home_And_Origin();
+
+    // send new home and ekf origin to GCS
+    gcs().send_home();
+    gcs().send_ekf_origin();
 }
 
 //  a relative ground position to home in meters, Down

@@ -101,6 +101,9 @@ const AP_Scheduler::Task Plane::scheduler_tasks[] = {
 #if OSD_ENABLED == ENABLED
     SCHED_TASK(publish_osd_info, 1, 10),
 #endif
+#if LANDING_GEAR_ENABLED == ENABLED
+    SCHED_TASK_CLASS(AP_LandingGear, &plane.g2.landing_gear, update, 10, 50),
+#endif
 };
 
 constexpr int8_t Plane::_failsafe_priorities[5];
@@ -244,6 +247,11 @@ void Plane::afs_fs_check(void)
     afs.check(failsafe.last_heartbeat_ms, geofence_breached(), failsafe.AFS_last_valid_rc_ms);
 }
 
+#if HAL_WITH_IO_MCU
+#include <AP_IOMCU/AP_IOMCU.h>
+extern AP_IOMCU iomcu;
+#endif
+
 void Plane::one_second_loop()
 {
     // send a heartbeat
@@ -258,6 +266,10 @@ void Plane::one_second_loop()
         setup_failsafe_mixing();
     }
 #endif // CONFIG_HAL_BOARD
+
+#if HAL_WITH_IO_MCU
+    iomcu.setup_mixing(&rcmap, g.override_channel.get(), g.mixing_gain, g2.manual_rc_mask);
+#endif
 
     // make it possible to change orientation at runtime
     ahrs.set_orientation();

@@ -173,12 +173,6 @@ protected:
     // altitude below which we do no navigation in auto takeoff
     static float auto_takeoff_no_nav_alt_cm;
 
-    // gnd speed limit required to observe optical flow sensor limits
-    float &ekfGndSpdLimit;
-
-    // scale factor applied to velocity controller gain to prevent optical flow noise causing excessive angle demand noise
-    float &ekfNavVelGainScaler;
-
 #if FRAME_CONFIG == HELI_FRAME
     heli_flags_t &heli_flags;
 #endif
@@ -287,7 +281,7 @@ public:
     bool requires_GPS() const override { return true; }
     bool has_manual_throttle() const override { return false; }
     bool allows_arming(bool from_gcs) const override { return false; };
-    bool in_guided_mode() const { return mode() == Auto_NavGuided; }
+    bool in_guided_mode() const override { return mode() == Auto_NavGuided; }
 
     // Auto
     AutoMode mode() const { return _mode; }
@@ -309,17 +303,17 @@ public:
 
     // return true if this flight mode supports user takeoff
     //  must_nagivate is true if mode must also control horizontal position
-    virtual bool has_user_takeoff(bool must_navigate) const { return false; }
+    virtual bool has_user_takeoff(bool must_navigate) const override { return false; }
 
     void payload_place_start();
 
-    // only out here temporarily
-    bool start_command(const AP_Mission::Mission_Command& cmd);
-    bool verify_command_callback(const AP_Mission::Mission_Command& cmd);
-    void exit_mission();
-
     // for GCS_MAVLink to call:
     bool do_guided(const AP_Mission::Mission_Command& cmd);
+
+    AP_Mission mission{
+        FUNCTOR_BIND_MEMBER(&Copter::ModeAuto::start_command, bool, const AP_Mission::Mission_Command &),
+        FUNCTOR_BIND_MEMBER(&Copter::ModeAuto::verify_command, bool, const AP_Mission::Mission_Command &),
+        FUNCTOR_BIND_MEMBER(&Copter::ModeAuto::exit_mission, void)};
 
 protected:
 
@@ -334,7 +328,9 @@ protected:
 
 private:
 
+    bool start_command(const AP_Mission::Mission_Command& cmd);
     bool verify_command(const AP_Mission::Mission_Command& cmd);
+    void exit_mission();
 
     void takeoff_run();
     void wp_run();
@@ -344,6 +340,9 @@ private:
     void circle_run();
     void nav_guided_run();
     void loiter_run();
+    void loiter_to_alt_run();
+
+    Location_Class loc_from_cmd(const AP_Mission::Mission_Command& cmd) const;
 
     void payload_place_start(const Vector3f& destination);
     void payload_place_run();
@@ -362,6 +361,7 @@ private:
     void do_loiter_unlimited(const AP_Mission::Mission_Command& cmd);
     void do_circle(const AP_Mission::Mission_Command& cmd);
     void do_loiter_time(const AP_Mission::Mission_Command& cmd);
+    void do_loiter_to_alt(const AP_Mission::Mission_Command& cmd);
     void do_spline_wp(const AP_Mission::Mission_Command& cmd);
 #if NAV_GUIDED == ENABLED
     void do_nav_guided_enable(const AP_Mission::Mission_Command& cmd);
@@ -375,15 +375,8 @@ private:
     void do_set_home(const AP_Mission::Mission_Command& cmd);
     void do_roi(const AP_Mission::Mission_Command& cmd);
     void do_mount_control(const AP_Mission::Mission_Command& cmd);
-#if CAMERA == ENABLED
-    void do_digicam_configure(const AP_Mission::Mission_Command& cmd);
-    void do_digicam_control(const AP_Mission::Mission_Command& cmd);
-#endif
 #if PARACHUTE == ENABLED
     void do_parachute(const AP_Mission::Mission_Command& cmd);
-#endif
-#if GRIPPER_ENABLED == ENABLED
-    void do_gripper(const AP_Mission::Mission_Command& cmd);
 #endif
 #if WINCH_ENABLED == ENABLED
     void do_winch(const AP_Mission::Mission_Command& cmd);
@@ -396,6 +389,7 @@ private:
     bool verify_payload_place();
     bool verify_loiter_unlimited();
     bool verify_loiter_time();
+    bool verify_loiter_to_alt();
     bool verify_RTL();
     bool verify_wait_delay();
     bool verify_within_distance();
@@ -413,6 +407,14 @@ private:
     // Loiter control
     uint16_t loiter_time_max;                // How long we should stay in Loiter Mode for mission scripting (time in seconds)
     uint32_t loiter_time;                    // How long have we been loitering - The start time in millis
+
+    struct {
+        bool reached_destination_xy : 1;
+        bool loiter_start_done : 1;
+        bool reached_alt : 1;
+        float alt_error_cm;
+        int32_t alt;
+    } loiter_to_alt;
 
     // Delay the next navigation command
     int32_t nav_delay_time_max;  // used for delaying the navigation commands (eg land,takeoff etc.)
@@ -434,7 +436,6 @@ private:
         float descend_start_altitude;
         float descend_max; // centimetres
     } nav_payload_place;
-
 };
 
 #if AUTOTUNE_ENABLED == ENABLED
@@ -804,7 +805,7 @@ public:
     bool has_manual_throttle() const override { return false; }
     bool allows_arming(bool from_gcs) const override { return from_gcs; }
     bool is_autopilot() const override { return true; }
-    bool in_guided_mode() const { return true; }
+    bool in_guided_mode() const override { return true; }
     bool has_user_takeoff(bool must_navigate) const override { return true; }
 
     void set_angle(const Quaternion &q, float climb_rate_cms, bool use_yaw_rate, float yaw_rate_rads);
@@ -1253,4 +1254,49 @@ protected:
     const char *name4() const override { return "FOLL"; }
 
     uint32_t last_log_ms;   // system time of last time desired velocity was logging
+};
+
+class ModeZigZag : public Mode {        
+
+public:
+
+    // inherit constructor
+    using Copter::Mode::Mode;
+
+    bool init(bool ignore_checks) override;
+    void run() override;
+
+    bool requires_GPS() const override { return true; }
+    bool has_manual_throttle() const override { return false; }
+    bool allows_arming(bool from_gcs) const override { return false; }
+    bool is_autopilot() const override { return true; }
+
+    // save current position as A (dest_num = 0) or B (dest_num = 1).  If both A and B have been saved move to the one specified
+    void save_or_move_to_destination(uint8_t dest_num);
+
+    // return manual control to the pilot
+    void return_to_manual_control();
+
+protected:
+
+    const char *name() const override { return "ZIGZAG"; }
+    const char *name4() const override { return "ZIGZ"; }
+
+private:
+
+    void auto_control();
+    void manual_control();
+    bool reached_destination();
+    bool calculate_next_dest(uint8_t position_num, Vector3f& next_dest) const;
+
+    Vector2f dest_A;    // in NEU frame in cm relative to ekf origin
+    Vector2f dest_B;    // in NEU frame in cm relative to ekf origin
+
+    enum zigzag_state {
+        STORING_POINTS, // storing points A and B, pilot has manual control
+        AUTO,           // after A and B defined, pilot toggle the switch from one side to the other, vehicle flies autonomously
+        MANUAL_REGAIN   // pilot toggle the switch to middle position, has manual control
+    } stage;
+
+    uint32_t reach_wp_time_ms = 0;  // time since vehicle reached destination (or zero if not yet reached)
 };

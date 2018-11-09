@@ -467,6 +467,50 @@ void Plane::set_servos_flaps(void)
     flaperon_update(auto_flap_percent);
 }
 
+#if LANDING_GEAR_ENABLED == ENABLED
+/*
+  change and report landing gear
+ */
+void Plane::change_landing_gear(AP_LandingGear::LandingGearCommand cmd)
+{
+    if (cmd != (AP_LandingGear::LandingGearCommand)gear.last_cmd) {
+        if (SRV_Channels::function_assigned(SRV_Channel::k_landing_gear_control)) {
+            g2.landing_gear.set_position(cmd);
+            gcs().send_text(MAV_SEVERITY_INFO, "LandingGear: %s", cmd==AP_LandingGear::LandingGear_Retract?"RETRACT":"DEPLOY");
+        }
+        gear.last_cmd = (int8_t)cmd;
+    }
+}
+
+/*
+  setup landing gear state
+ */
+void Plane::set_landing_gear(void)
+{
+    if (control_mode == AUTO && hal.util->get_soft_armed() && is_flying()) {
+        AP_LandingGear::LandingGearCommand cmd = (AP_LandingGear::LandingGearCommand)gear.last_auto_cmd;
+        switch (flight_stage) {
+        case AP_Vehicle::FixedWing::FLIGHT_LAND:
+            cmd = AP_LandingGear::LandingGear_Deploy;
+            break;
+        case AP_Vehicle::FixedWing::FLIGHT_NORMAL:
+            cmd = AP_LandingGear::LandingGear_Retract;
+            break;
+        case AP_Vehicle::FixedWing::FLIGHT_VTOL:
+            if (quadplane.is_vtol_land(mission.get_current_nav_cmd().id)) {
+                cmd = AP_LandingGear::LandingGear_Deploy;
+            }
+            break;
+        default:
+            break;
+        }
+        if (cmd != gear.last_auto_cmd) {
+            gear.last_auto_cmd = (int8_t)cmd;
+            change_landing_gear(cmd);
+        }
+    }
+}
+#endif // LANDING_GEAR_ENABLED
 
 /*
   apply vtail and elevon mixers
@@ -490,6 +534,11 @@ void Plane::servos_twin_engine_mix(void)
     float throttle = SRV_Channels::get_output_scaled(SRV_Channel::k_throttle);
     float rud_gain = float(plane.g2.rudd_dt_gain) / 100;
     float rudder = rud_gain * SRV_Channels::get_output_scaled(SRV_Channel::k_rudder) / float(SERVO_MAX);
+
+    if (afs.should_crash_vehicle()) {
+        // when in AFS failsafe force rudder input for differential thrust to zero
+        rudder = 0;
+    }
 
     float throttle_left, throttle_right;
 
@@ -589,6 +638,11 @@ void Plane::set_servos(void)
 
     // setup flap outputs
     set_servos_flaps();
+
+#if LANDING_GEAR_ENABLED == ENABLED
+    // setup landing gear output
+    set_landing_gear();
+#endif
     
     if (auto_throttle_mode ||
         quadplane.in_assisted_flight() ||

@@ -17,8 +17,9 @@
 #include <AP_HAL/AP_HAL.h>
 #include "ch.h"
 #include "hal.h"
+#include <AP_Common/Semaphore.h>
 
-#if HAL_USE_ADC == TRUE
+#if HAL_USE_ADC == TRUE && !defined(HAL_DISABLE_ADC_DRIVER)
 
 #include "AnalogIn.h"
 
@@ -51,6 +52,9 @@ extern const AP_HAL::HAL& hal;
 
 using namespace ChibiOS;
 
+// special pins
+#define ANALOG_SERVO_VRSSI_PIN 103
+
 /*
   scaling table between ADC count and actual input voltage, to account
   for voltage dividers on the board. 
@@ -73,24 +77,22 @@ AnalogSource::AnalogSource(int16_t pin, float initial_value) :
     _sum_value(0),
     _sum_ratiometric(0)
 {
-    _semaphore = hal.util->new_semaphore();
 }
 
 
 float AnalogSource::read_average() 
 {
-    if (_semaphore->take(1)) {
-        if (_sum_count == 0) {
-            _semaphore->give();
-            return _value;
-        }
-        _value = _sum_value / _sum_count;
-        _value_ratiometric = _sum_ratiometric / _sum_count;
-        _sum_value = 0;
-        _sum_ratiometric = 0;
-        _sum_count = 0;
-        _semaphore->give();
+    WITH_SEMAPHORE(_semaphore);
+
+    if (_sum_count == 0) {
+        return _value;
     }
+    _value = _sum_value / _sum_count;
+    _value_ratiometric = _sum_ratiometric / _sum_count;
+    _sum_value = 0;
+    _sum_ratiometric = 0;
+    _sum_count = 0;
+
     return _value;
 }
 
@@ -145,16 +147,14 @@ void AnalogSource::set_pin(uint8_t pin)
     if (_pin == pin) {
         return;
     }
-    if (_semaphore->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
-        _pin = pin;
-        _sum_value = 0;
-        _sum_ratiometric = 0;
-        _sum_count = 0;
-        _latest_value = 0;
-        _value = 0;
-        _value_ratiometric = 0;
-        _semaphore->give();
-    }
+    WITH_SEMAPHORE(_semaphore);
+    _pin = pin;
+    _sum_value = 0;
+    _sum_ratiometric = 0;
+    _sum_count = 0;
+    _latest_value = 0;
+    _value = 0;
+    _value_ratiometric = 0;
 }
 
 /*
@@ -162,33 +162,25 @@ void AnalogSource::set_pin(uint8_t pin)
  */
 void AnalogSource::_add_value(float v, float vcc5V)
 {
-    if (_semaphore->take(1)) {
-        _latest_value = v;
-        _sum_value += v;
-        if (vcc5V < 3.0f) {
-            _sum_ratiometric += v;
-        } else {
-            // this compensates for changes in the 5V rail relative to the
-            // 3.3V reference used by the ADC.
-            _sum_ratiometric += v * 5.0f / vcc5V;
-        }
-        _sum_count++;
-        if (_sum_count == 254) {
-            _sum_value /= 2;
-            _sum_ratiometric /= 2;
-            _sum_count /= 2;
-        }
-        _semaphore->give();
+    WITH_SEMAPHORE(_semaphore);
+
+    _latest_value = v;
+    _sum_value += v;
+    if (vcc5V < 3.0f) {
+        _sum_ratiometric += v;
+    } else {
+        // this compensates for changes in the 5V rail relative to the
+        // 3.3V reference used by the ADC.
+        _sum_ratiometric += v * 5.0f / vcc5V;
+    }
+    _sum_count++;
+    if (_sum_count == 254) {
+        _sum_value /= 2;
+        _sum_ratiometric /= 2;
+        _sum_count /= 2;
     }
 }
 
-
-AnalogIn::AnalogIn() :
-    _board_voltage(0),
-    _servorail_voltage(0),
-    _power_flags(0)
-{
-}
 
 /*
   callback from ADC driver when sample buffer is filled
@@ -290,23 +282,29 @@ void AnalogIn::_timer_tick(void)
         }
 #endif
     }
-    for (uint8_t i=0; i<ADC_GRP1_NUM_CHANNELS; i++) {
-        Debug("chan %u value=%u\n",
-              (unsigned)pin_config[i].channel,
-              (unsigned)buf_adc[i]);
-        for (uint8_t j=0; j < ADC_GRP1_NUM_CHANNELS; j++) {
-            ChibiOS::AnalogSource *c = _channels[j];
-            if (c != nullptr && pin_config[i].channel == c->_pin) {
-                // add a value
-                c->_add_value(buf_adc[i], _board_voltage);
-            }
-        }
-    }
 
 #if HAL_WITH_IO_MCU
     // now handle special inputs from IOMCU
     _servorail_voltage = iomcu.get_vservo();
+    _rssi_voltage = iomcu.get_vrssi();
 #endif
+    
+    for (uint8_t i=0; i<ADC_GRP1_NUM_CHANNELS; i++) {
+        Debug("chan %u value=%u\n",
+              (unsigned)pin_config[i].channel,
+              (unsigned)buf_adc[i]);
+        for (uint8_t j=0; j < ANALOG_MAX_CHANNELS; j++) {
+            ChibiOS::AnalogSource *c = _channels[j];
+            if (c != nullptr) {
+                if (pin_config[i].channel == c->_pin) {
+                    // add a value
+                    c->_add_value(buf_adc[i], _board_voltage);
+                } else if (c->_pin == ANALOG_SERVO_VRSSI_PIN) {
+                    c->_add_value(_rssi_voltage / VOLTAGE_SCALING, 0);
+                }
+            }
+        }
+    }
 
 #if CHIBIOS_ADC_MAVLINK_DEBUG
     static uint8_t count;

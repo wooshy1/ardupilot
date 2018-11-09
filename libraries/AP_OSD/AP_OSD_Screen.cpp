@@ -189,7 +189,23 @@ const AP_Param::GroupInfo AP_OSD_Screen::var_info[] = {
     // @Group: EFF
     // @Path: AP_OSD_Setting.cpp
     AP_SUBGROUPINFO(eff, "EFF", 36, AP_OSD_Screen, AP_OSD_Setting),
+    
+    // @Group: BTEMP
+    // @Path: AP_OSD_Setting.cpp
+    AP_SUBGROUPINFO(btemp, "BTEMP", 37, AP_OSD_Screen, AP_OSD_Setting),
 
+    // @Group: ATEMP
+    // @Path: AP_OSD_Setting.cpp
+    AP_SUBGROUPINFO(atemp, "ATEMP", 38, AP_OSD_Screen, AP_OSD_Setting),
+    
+    // @Group: BAT2VLT
+    // @Path: AP_OSD_Setting.cpp
+    AP_SUBGROUPINFO(bat2_vlt, "BAT2_VLT", 39, AP_OSD_Screen, AP_OSD_Setting),
+
+    // @Group: BAT2USED
+    // @Path: AP_OSD_Setting.cpp
+    AP_SUBGROUPINFO(bat2used, "BAT2USED", 40, AP_OSD_Screen, AP_OSD_Setting),
+    
     AP_GROUPEND
 };
 
@@ -283,6 +299,7 @@ AP_OSD_Screen::AP_OSD_Screen()
 #define SYM_DIST      0x22
 #define SYM_FLY       0x9C
 #define SYM_EFF       0xF2
+#define SYM_AH        0xF3
 
 void AP_OSD_Screen::set_backend(AP_OSD_Backend *_backend)
 {
@@ -735,9 +752,7 @@ void AP_OSD_Screen::draw_blh_rpm(uint8_t x, uint8_t y)
         if (!blheli->get_telem_data(0, td)) {
             return;
         }
-
-        int esc_rpm = td.rpm * 14;   // hard-wired assumption for now that motor has 14 poles, so multiply eRPM * 14 to get motor RPM.
-        backend->write(x, y, false, "%5d%c", esc_rpm, SYM_RPM);
+        backend->write(x, y, false, "%5d%c", td.rpm, SYM_RPM);
     }
 }
 
@@ -751,7 +766,7 @@ void AP_OSD_Screen::draw_blh_amps(uint8_t x, uint8_t y)
             return;
         }
 
-        float esc_amps = td.current;
+        float esc_amps = td.current * 0.01;
         backend->write(x, y, false, "%4.1f%c", esc_amps, SYM_AMP);
     }
 }
@@ -908,6 +923,48 @@ void AP_OSD_Screen::draw_climbeff(uint8_t x, uint8_t y)
     } 
 }
 
+void AP_OSD_Screen::draw_btemp(uint8_t x, uint8_t y)
+{
+    AP_Baro &barometer = AP::baro();
+    float btmp = barometer.get_temperature(1);
+    backend->write(x, y, false, "%3d%c", (int)u_scale(TEMPERATURE, btmp), u_icon(TEMPERATURE));
+}
+
+void AP_OSD_Screen::draw_atemp(uint8_t x, uint8_t y)
+{
+    AP_Airspeed *airspeed = AP_Airspeed::get_singleton();
+    if (!airspeed) {
+        return;
+    }
+    float temperature = 0;
+    airspeed->get_temperature(temperature);
+    if (airspeed->healthy()) {
+        backend->write(x, y, false, "%3d%c", (int)u_scale(TEMPERATURE, temperature), u_icon(TEMPERATURE));
+    } else {
+        backend->write(x, y, false, "--%c", u_icon(TEMPERATURE));
+    }
+}
+
+void AP_OSD_Screen::draw_bat2_vlt(uint8_t x, uint8_t y)
+{
+    AP_BattMonitor &battery = AP_BattMonitor::battery();
+    uint8_t pct2 = battery.capacity_remaining_pct(1);
+    uint8_t p2 = (100 - pct2) / 16.6;
+    float v2 = battery.voltage(1);
+    backend->write(x,y, v2 < osd->warn_bat2volt, "%c%2.1f%c", SYM_BATT_FULL + p2, (double)v2, SYM_VOLT);
+}
+
+void AP_OSD_Screen::draw_bat2used(uint8_t x, uint8_t y)
+{
+    AP_BattMonitor &battery = AP_BattMonitor::battery();
+    float ah = battery.consumed_mah(1) / 1000;
+    if (battery.consumed_mah(1) <= 9999) {
+        backend->write(x,y, false, "%4d%c", (int)battery.consumed_mah(1), SYM_MAH);
+    } else {
+        backend->write(x,y, false, "%2.2f%c", (double)ah, SYM_AH);
+    }
+}
+
 #define DRAW_SETTING(n) if (n.enabled) draw_ ## n(n.xpos, n.ypos)
 
 void AP_OSD_Screen::draw(void)
@@ -926,9 +983,11 @@ void AP_OSD_Screen::draw(void)
     DRAW_SETTING(waypoint);
     DRAW_SETTING(xtrack_error);
     DRAW_SETTING(bat_volt);
+    DRAW_SETTING(bat2_vlt);
     DRAW_SETTING(rssi);
     DRAW_SETTING(current);
     DRAW_SETTING(batused);
+    DRAW_SETTING(bat2used);
     DRAW_SETTING(sats);
     DRAW_SETTING(fltmode);
     DRAW_SETTING(gspeed);
@@ -941,6 +1000,8 @@ void AP_OSD_Screen::draw(void)
     DRAW_SETTING(roll_angle);
     DRAW_SETTING(pitch_angle);
     DRAW_SETTING(temp);
+    DRAW_SETTING(btemp);
+    DRAW_SETTING(atemp);
     DRAW_SETTING(hdop);
     DRAW_SETTING(flightime);
 

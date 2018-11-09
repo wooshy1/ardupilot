@@ -184,7 +184,7 @@ private:
     uint16_t _path_points_max;  // after the array has been allocated, we will need to know how big it is. We can't use the parameter, because a user could change the parameter in-flight
     uint16_t _path_points_count;// number of points in the path array
     uint16_t _path_points_completed_limit;  // set by main thread to the path_point_count when a point is popped.  used by simplify and prune algorithms to detect path shrinking
-    AP_HAL::Semaphore *_path_sem;   // semaphore for updating path
+    HAL_Semaphore _path_sem;   // semaphore for updating path
 
     // Simplify
     // structure and buffer to hold the "to-do list" for the simplify algorithm.
@@ -200,7 +200,7 @@ private:
         simplify_start_finish_t* stack;
         uint16_t stack_max;     // maximum number of elements in the _simplify_stack array
         uint16_t stack_count;   // number of elements in _simplify_stack array
-        Bitmask bitmask = Bitmask(SMARTRTL_POINTS_MAX);  // simplify algorithm clears bits for each point that can be removed
+        Bitmask bitmask{SMARTRTL_POINTS_MAX};  // simplify algorithm clears bits for each point that can be removed
     } _simplify;
 
     // Pruning

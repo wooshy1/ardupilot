@@ -76,6 +76,8 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_Gripper',
     'AP_RTC',
     'AC_Sprayer',
+    'AC_Avoidance',
+    'AP_LandingGear',
 ]
 
 def get_legacy_defines(sketch_name):
@@ -87,6 +89,7 @@ def get_legacy_defines(sketch_name):
 
 IGNORED_AP_LIBRARIES = [
     'doc',
+    'AP_Scripting', # this gets explicitly included when it is needed and should otherwise never be globbed in
 ]
 
 @conf

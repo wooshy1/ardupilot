@@ -190,11 +190,11 @@ float AP_RSSI::read_pin_rssi()
 // read the RSSI value from a PWM value on a RC channel
 float AP_RSSI::read_channel_rssi()
 {
-    RC_Channel *ch = rc().channel(rssi_channel-1);
-    if (ch == nullptr) {
+    RC_Channel *c = rc().channel(rssi_channel-1);
+    if (c == nullptr) {
         return 0.0f;
     }
-    uint16_t rssi_channel_value = ch->get_radio_in();
+    uint16_t rssi_channel_value = c->get_radio_in();
     float channel_rssi = scale_and_constrain_float_rssi(rssi_channel_value, rssi_channel_low_pwm_value, rssi_channel_high_pwm_value);
     return channel_rssi;    
 }
@@ -223,6 +223,7 @@ void AP_RSSI::check_pwm_pin_rssi()
     }
 
     // install interrupt handler on rising and falling edge
+    hal.gpio->pinMode(rssi_analog_pin, HAL_GPIO_INPUT);
     if (!hal.gpio->attach_interrupt(
             rssi_analog_pin,
             FUNCTOR_BIND_MEMBER(&AP_RSSI::irq_handler,

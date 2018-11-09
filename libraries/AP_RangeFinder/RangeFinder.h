@@ -24,7 +24,11 @@
 #define RANGEFINDER_MAX_INSTANCES 2
 #define RANGEFINDER_GROUND_CLEARANCE_CM_DEFAULT 10
 #define RANGEFINDER_PREARM_ALT_MAX_CM           200
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#define RANGEFINDER_PREARM_REQUIRED_CHANGE_CM   0
+#else
 #define RANGEFINDER_PREARM_REQUIRED_CHANGE_CM   50
+#endif
 
 class AP_RangeFinder_Backend;
 
@@ -61,7 +65,9 @@ public:
         RangeFinder_TYPE_NMEA = 17,
         RangeFinder_TYPE_WASP = 18,
         RangeFinder_TYPE_BenewakeTF02 = 19,
-        RangeFinder_TYPE_BenewakeTFmini = 20
+        RangeFinder_TYPE_BenewakeTFmini = 20,
+        RangeFinder_TYPE_PLI2CV3HP = 21,
+        RangeFinder_TYPE_PWM = 22,
     };
 
     enum RangeFinder_Function {

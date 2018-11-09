@@ -96,6 +96,7 @@
 #include <AP_ICEngine/AP_ICEngine.h>
 #include <AP_Gripper/AP_Gripper.h>
 #include <AP_Landing/AP_Landing.h>
+#include <AP_LandingGear/AP_LandingGear.h>     // Landing Gear library
 
 #include "GCS_Mavlink.h"
 #include "GCS_Plane.h"
@@ -107,6 +108,10 @@
 
 // Local modules
 #include "defines.h"
+
+#ifdef ENABLE_SCRIPTING
+#include <AP_Scripting/AP_Scripting.h>
+#endif
 
 #include "RC_Channel.h"     // RC Channel Library
 #include "Parameters.h"
@@ -426,6 +431,8 @@ private:
         uint32_t last_check_ms;
         uint32_t last_report_ms;
         bool launchTimerStarted;
+        uint8_t accel_event_counter;
+        uint32_t accel_event_ms;
     } takeoff_state;
     
     // ground steering controller state
@@ -530,8 +537,16 @@ private:
         // throttle  commanded from external controller in percent
         float forced_throttle;
         uint32_t last_forced_throttle_ms;
-} guided_state;
+    } guided_state;
 
+#if LANDING_GEAR_ENABLED == ENABLED
+    // landing gear state
+    struct {
+        int8_t last_auto_cmd;
+        int8_t last_cmd;
+    } gear;
+#endif
+    
     struct {
         // on hard landings, only check once after directly a landing so you
         // don't trigger a crash when picking up the aircraft
@@ -599,7 +614,7 @@ private:
     float smoothed_airspeed;
 
     // Mission library
-    AP_Mission mission{ahrs,
+    AP_Mission mission{
             FUNCTOR_BIND_MEMBER(&Plane::start_command_callback, bool, const AP_Mission::Mission_Command &),
             FUNCTOR_BIND_MEMBER(&Plane::verify_command_callback, bool, const AP_Mission::Mission_Command &),
             FUNCTOR_BIND_MEMBER(&Plane::exit_mission_callback, void)};
@@ -611,7 +626,7 @@ private:
 
     // terrain handling
 #if AP_TERRAIN_AVAILABLE
-    AP_Terrain terrain{ahrs, mission, rally};
+    AP_Terrain terrain{mission, rally};
 #endif
 
     AP_Landing landing{mission,ahrs,SpdHgt_Controller,nav_controller,aparm,
@@ -741,7 +756,7 @@ private:
     // Camera/Antenna mount tracking and stabilisation stuff
 #if MOUNT == ENABLED
     // current_loc uses the baro/gps soloution for altitude rather than gps only.
-    AP_Mount camera_mount{ahrs, current_loc};
+    AP_Mount camera_mount{current_loc};
 #endif
 
     // Arming/Disarming mangement class
@@ -957,6 +972,8 @@ private:
     void set_servos_controlled(void);
     void set_servos_old_elevons(void);
     void set_servos_flaps(void);
+    void change_landing_gear(AP_LandingGear::LandingGearCommand cmd);
+    void set_landing_gear(void);
     void dspoiler_update(void);
     void servo_output_mixers(void);
     void servos_output(void);
@@ -1012,8 +1029,6 @@ private:
     void do_within_distance(const AP_Mission::Mission_Command& cmd);
     void do_change_speed(const AP_Mission::Mission_Command& cmd);
     void do_set_home(const AP_Mission::Mission_Command& cmd);
-    void do_digicam_configure(const AP_Mission::Mission_Command& cmd);
-    void do_digicam_control(const AP_Mission::Mission_Command& cmd);
     bool start_command_callback(const AP_Mission::Mission_Command &cmd);
     bool verify_command_callback(const AP_Mission::Mission_Command& cmd);
     void notify_flight_mode(enum FlightMode mode);

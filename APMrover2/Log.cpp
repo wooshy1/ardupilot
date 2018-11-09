@@ -44,6 +44,11 @@ void Rover::Log_Write_Attitude()
     if (is_balancebot()) {
         DataFlash.Log_Write_PID(LOG_PIDP_MSG, g2.attitude_control.get_pitch_to_throttle_pid().get_pid_info());
     }
+
+    // log heel to sail control for sailboats
+    if (g2.motors.has_sail()) {
+        DataFlash.Log_Write_PID(LOG_PIDR_MSG, g2.attitude_control.get_sailboat_heel_pid().get_pid_info());
+    }
 }
 
 // Write a range finder depth message
@@ -56,7 +61,7 @@ void Rover::Log_Write_Depth()
 
     // get position
     Location loc;
-    if (!rover.ahrs.get_position(loc)) {
+    if (!ahrs.get_position(loc)) {
         return;
     }
 
@@ -152,6 +157,35 @@ void Rover::Log_Write_Nav_Tuning()
 void Rover::Log_Write_Proximity()
 {
     DataFlash.Log_Write_Proximity(g2.proximity);
+}
+
+void Rover::Log_Write_Sail()
+{
+    // only log sail if present
+    if (!g2.motors.has_sail()) {
+        return;
+    }
+
+    // get wind direction
+    float wind_dir_abs = DataFlash.quiet_nanf();
+    float wind_dir_rel = DataFlash.quiet_nanf();
+    float wind_speed_true = DataFlash.quiet_nanf();
+    float wind_speed_apparent = DataFlash.quiet_nanf();
+    if (rover.g2.windvane.enabled()) {
+        wind_dir_abs = degrees(g2.windvane.get_absolute_wind_direction_rad());
+        wind_dir_rel = degrees(g2.windvane.get_apparent_wind_direction_rad());
+        wind_speed_true = g2.windvane.get_true_wind_speed();
+        wind_speed_apparent = g2.windvane.get_apparent_wind_speed();
+    }
+    DataFlash.Log_Write("SAIL", "TimeUS,WindDirAbs,WindDirApp,WindSpdTrue,WindSpdApp,SailOut,VMG",
+                        "shhnn%n", "F000000", "Qffffff",
+                        AP_HAL::micros64(),
+                        (double)wind_dir_abs,
+                        (double)wind_dir_rel,
+                        (double)wind_speed_true,
+                        (double)wind_speed_apparent,
+                        (double)g2.motors.get_mainsail(),
+                        (double)sailboat_get_VMG());
 }
 
 struct PACKED log_Steering {
@@ -356,6 +390,7 @@ void Rover::Log_Write_Error(uint8_t sub_system, uint8_t error_code) {}
 void Rover::Log_Write_GuidedTarget(uint8_t target_type, const Vector3f& pos_target, const Vector3f& vel_target) {}
 void Rover::Log_Write_Nav_Tuning() {}
 void Rover::Log_Write_Proximity() {}
+void Rover::Log_Write_Sail() {}
 void Rover::Log_Write_Startup(uint8_t type) {}
 void Rover::Log_Write_Throttle() {}
 void Rover::Log_Write_Rangefinder() {}

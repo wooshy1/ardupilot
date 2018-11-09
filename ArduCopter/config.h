@@ -236,9 +236,9 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
-// winch support - enabled only on larger firmwares
+// winch support
 #ifndef WINCH_ENABLED
-# define WINCH_ENABLED !HAL_MINIMIZE_FEATURES
+# define WINCH_ENABLED DISABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -347,6 +347,12 @@
 // Throw - fly vehicle after throwing it in the air
 #ifndef MODE_THROW_ENABLED
 # define MODE_THROW_ENABLED ENABLED
+#endif
+
+//////////////////////////////////////////////////////////////////////////////
+// ZigZag - allow vehicle to fly in a zigzag manner with predefined point A B
+#ifndef MODE_ZIGZAG_ENABLED
+# define MODE_ZIGZAG_ENABLED !HAL_MINIMIZE_FEATURES
 #endif
 
 //////////////////////////////////////////////////////////////////////////////

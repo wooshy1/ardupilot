@@ -108,8 +108,8 @@ void AC_WPNav::init_brake_target(float accel_cmss)
     _pos_control.init_xy_controller();
 
     // initialise pos controller speed and acceleration
-    _pos_control.set_speed_xy(curr_vel.length());
-    _pos_control.set_accel_xy(accel_cmss);
+    _pos_control.set_max_speed_xy(curr_vel.length());
+    _pos_control.set_max_accel_xy(accel_cmss);
     _pos_control.calc_leash_length_xy();
 
     // set target position
@@ -118,11 +118,11 @@ void AC_WPNav::init_brake_target(float accel_cmss)
 }
 
 // update_brake - run the stop controller - gets called at 400hz
-void AC_WPNav::update_brake(float ekfGndSpdLimit, float ekfNavVelGainScaler)
+void AC_WPNav::update_brake()
 {
     // send adjusted feed forward velocity back to position controller
     _pos_control.set_desired_velocity_xy(0.0f, 0.0f);
-    _pos_control.update_xy_controller(ekfNavVelGainScaler);
+    _pos_control.update_xy_controller();
 }
 
 ///
@@ -148,10 +148,10 @@ void AC_WPNav::wp_and_spline_init()
     _pos_control.set_desired_velocity_xy(0.0f, 0.0f);
 
     // initialise position controller speed and acceleration
-    _pos_control.set_speed_xy(_wp_speed_cms);
-    _pos_control.set_accel_xy(_wp_accel_cmss);
-    _pos_control.set_speed_z(-_wp_speed_down_cms, _wp_speed_up_cms);
-    _pos_control.set_accel_z(_wp_accel_z_cmss);
+    _pos_control.set_max_speed_xy(_wp_speed_cms);
+    _pos_control.set_max_accel_xy(_wp_accel_cmss);
+    _pos_control.set_max_speed_z(-_wp_speed_down_cms, _wp_speed_up_cms);
+    _pos_control.set_max_accel_z(_wp_accel_z_cmss);
     _pos_control.calc_leash_length_xy();
     _pos_control.calc_leash_length_z();
 
@@ -165,10 +165,20 @@ void AC_WPNav::set_speed_xy(float speed_cms)
     // range check new target speed and update position controller
     if (speed_cms >= WPNAV_WP_SPEED_MIN) {
         _wp_speed_cms = speed_cms;
-        _pos_control.set_speed_xy(_wp_speed_cms);
+        _pos_control.set_max_speed_xy(_wp_speed_cms);
         // flag that wp leash must be recalculated
         _flags.recalc_wp_leash = true;
     }
+}
+
+/// set_speed_z - allows main code to pass target vertical velocity for wp navigation
+void AC_WPNav::set_speed_z(float speed_down_cms, float speed_up_cms)
+{
+    _wp_speed_down_cms = speed_down_cms;
+    _wp_speed_up_cms = speed_up_cms;
+    _pos_control.set_max_speed_z(_wp_speed_down_cms, _wp_speed_up_cms);
+    // flag that wp leash must be recalculated
+    _flags.recalc_wp_leash = true;
 }
 
 /// set_wp_destination waypoint using location class
@@ -507,8 +517,8 @@ bool AC_WPNav::update_wpnav()
 
     // allow the accel and speed values to be set without changing
     // out of auto mode. This makes it easier to tune auto flight
-    _pos_control.set_accel_xy(_wp_accel_cmss);
-    _pos_control.set_accel_z(_wp_accel_z_cmss);
+    _pos_control.set_max_accel_xy(_wp_accel_cmss);
+    _pos_control.set_max_accel_z(_wp_accel_z_cmss);
 
     // advance the target if necessary
     if (!advance_wp_target_along_track(dt)) {
@@ -522,7 +532,7 @@ bool AC_WPNav::update_wpnav()
         _pos_control.freeze_ff_z();
     }
 
-    _pos_control.update_xy_controller(1.0f);
+    _pos_control.update_xy_controller();
     check_wp_leash_length();
 
     _wp_last_update = AP_HAL::millis();
@@ -814,7 +824,7 @@ bool AC_WPNav::update_spline()
     }
 
     // run horizontal position controller
-    _pos_control.update_xy_controller(1.0f);
+    _pos_control.update_xy_controller();
 
     _wp_last_update = AP_HAL::millis();
 

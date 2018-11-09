@@ -6,6 +6,7 @@ import math
 import os
 
 import pexpect
+from pymavlink import quaternion
 from pymavlink import mavutil
 
 from pysim import util
@@ -183,8 +184,7 @@ class AutoTestPlane(AutoTest):
         self.wait_mode('FBWA')
 
         if abs(final_alt - initial_alt) > 20:
-            self.progress("Failed to maintain altitude")
-            raise NotAchievedException()
+            raise NotAchievedException("Failed to maintain altitude")
 
         self.progress("Completed Loiter OK")
 
@@ -213,8 +213,7 @@ class AutoTestPlane(AutoTest):
         self.wait_mode('FBWA')
 
         if abs(final_alt - initial_alt) > 20:
-            self.progress("Failed to maintain altitude")
-            raise NotAchievedException()
+            raise NotAchievedException("Failed to maintain altitude")
 
         self.progress("Completed CIRCLE OK")
 
@@ -233,8 +232,7 @@ class AutoTestPlane(AutoTest):
             if math.fabs(roll) <= accuracy and math.fabs(pitch) <= accuracy:
                 self.progress("Attained level flight")
                 return
-        self.progress("Failed to attain level flight")
-        raise NotAchievedException()
+        raise NotAchievedException("Failed to attain level flight")
 
     def change_altitude(self, altitude, accuracy=30):
         """Get to a given altitude."""
@@ -302,6 +300,93 @@ class AutoTestPlane(AutoTest):
         self.wait_mode('FBWA')
         self.set_rc(3, 1700)
         return self.wait_level_flight()
+
+    def set_attitude_target(self):
+        """Test setting of attitude target in guided mode."""
+        # mode guided:
+        self.mavproxy.send('mode GUIDED\n')
+        self.wait_mode('GUIDED')
+
+        target_roll_degrees = 70
+        state_roll_over = "roll-over"
+        state_stabilize_roll = "stabilize-roll"
+        state_hold = "hold"
+        state_roll_back = "roll-back"
+        state_done = "done"
+
+        tstart = self.get_sim_time()
+
+        try:
+            state = state_roll_over
+            while state != state_done:
+                if self.get_sim_time() - tstart > 20:
+                    raise AutoTestTimeoutException("Manuevers not completed")
+
+                m = self.mav.recv_match(type='ATTITUDE',
+                                        blocking=True,
+                                        timeout=0.1)
+                if m is None:
+                    continue
+
+                r = math.degrees(m.roll)
+                if state == state_roll_over:
+                    target_roll_degrees = 70
+                    if abs(r - target_roll_degrees) < 10:
+                        state = state_stabilize_roll
+                        stabilize_start = self.get_sim_time()
+                elif state == state_stabilize_roll:
+                    # just give it a little time to sort it self out
+                    if self.get_sim_time() - stabilize_start > 2:
+                        state = state_hold
+                        hold_start = self.get_sim_time()
+                elif state == state_hold:
+                    target_roll_degrees = 70
+                    if self.get_sim_time() - hold_start > 10:
+                        state = state_roll_back
+                    if abs(r - target_roll_degrees) > 10:
+                        raise NotAchievedException("Failed to hold attitude")
+                elif state == state_roll_back:
+                    target_roll_degrees = 0
+                    if abs(r - target_roll_degrees) < 10:
+                        state = state_done
+                else:
+                    raise ValueError("Unknown state %s" % str(state))
+
+                self.progress("%s Roll: %f desired=%f" %
+                              (state, r, target_roll_degrees))
+
+                time_boot_millis = 0 # FIXME
+                target_system = 1 # FIXME
+                target_component = 1 # FIXME
+                type_mask = 0b10000001 ^ 0xFF # FIXME
+                # attitude in radians:
+                q = quaternion.Quaternion([math.radians(target_roll_degrees),
+                                           0 ,
+                                           0])
+                roll_rate_radians = 0.5
+                pitch_rate_radians = 0
+                yaw_rate_radians = 0
+                thrust = 1.0
+                self.mav.mav.set_attitude_target_send(time_boot_millis,
+                                                      target_system,
+                                                      target_component,
+                                                      type_mask,
+                                                      q,
+                                                      roll_rate_radians,
+                                                      pitch_rate_radians,
+                                                      yaw_rate_radians,
+                                                      thrust)
+        except Exception as e:
+            self.mavproxy.send('mode FBWA\n')
+            self.wait_mode('FBWA')
+            self.set_rc(3, 1700)
+            raise e
+
+        # back to FBWA
+        self.mavproxy.send('mode FBWA\n')
+        self.wait_mode('FBWA')
+        self.set_rc(3, 1700)
+        self.wait_level_flight()
 
     def test_stabilize(self, count=1):
         """Fly stabilize mode."""
@@ -435,8 +520,7 @@ class AutoTestPlane(AutoTest):
         self.wait_mode('FBWA')
 
         if abs(final_alt - initial_alt) > 20:
-            self.progress("Failed to maintain altitude")
-            raise NotAchievedException()
+            raise NotAchievedException("Failed to maintain altitude")
 
         return self.wait_level_flight()
 
@@ -495,9 +579,8 @@ class AutoTestPlane(AutoTest):
             delta_time_min = 0.5
             delta_time_max = 1.5
             if delta_time < delta_time_min or delta_time > delta_time_max:
-                self.progress("Flaps Slew not working (%f seconds)" %
-                              (delta_time,))
-                raise NotAchievedException()
+                raise NotAchievedException((
+                    "Flaps Slew not working (%f seconds)" % (delta_time,)))
             # undeploy flaps:
             self.set_rc(flaps_ch, flaps_ch_min)
             self.wait_servo_channel_value(servo_ch, servo_ch_min)
@@ -550,25 +633,25 @@ class AutoTestPlane(AutoTest):
         '''test toggling channel 12 toggles relay'''
         off = self.get_parameter("SIM_PIN_MASK")
         if off:
-            raise PreconditionFailedException()
+            raise PreconditionFailedException("SIM_MASK_PIN off")
         self.set_rc(12, 2000)
         self.mav.wait_heartbeat()
         self.mav.wait_heartbeat()
         on = self.get_parameter("SIM_PIN_MASK")
         if not on:
-            raise NotAchievedException()
+            raise NotAchievedException("SIM_PIN_MASK doesn't reflect ON")
         self.set_rc(12, 1000)
         self.mav.wait_heartbeat()
         self.mav.wait_heartbeat()
         off = self.get_parameter("SIM_PIN_MASK")
         if off:
-            raise NotAchievedException()
+            raise NotAchievedException("SIM_PIN_MASK doesn't reflect OFF")
 
     def test_rc_option_camera_trigger(self):
         '''test toggling channel 12 takes picture'''
         x = self.mav.messages.get("CAMERA_FEEDBACK", None)
         if x is not None:
-            raise PreconditionFailedException()
+            raise PreconditionFailedException("Receiving CAMERA_FEEDBACK?!")
         self.set_rc(12, 2000)
         tstart = self.get_sim_time()
         while self.get_sim_time() - tstart < 10:
@@ -578,7 +661,27 @@ class AutoTestPlane(AutoTest):
             self.mav.wait_heartbeat()
         self.set_rc(12, 1000)
         if x is None:
-            raise NotAchievedException()
+            raise NotAchievedException("No CAMERA_FEEDBACK message received")
+
+    def test_gripper_mission(self):
+        self.context_push()
+        ex = None
+        try:
+            self.wp_load(os.path.join(testdir, "plane-gripper-mission.txt"))
+            self.mavproxy.send("wp set 1\n")
+            self.mavproxy.send('switch 1\n')  # auto mode
+            self.wait_mode('AUTO')
+            self.wait_ready_to_arm()
+            self.arm_vehicle()
+            self.mavproxy.expect("Gripper Grabbed")
+            self.mavproxy.expect("Gripper Released")
+            self.mavproxy.expect("Auto disarmed")
+        except Exception as e:
+            self.progress("Exception caught")
+            ex = e
+        self.context_pop()
+        if ex is not None:
+            raise ex
 
     def autotest(self):
         """Autotest ArduPlane in SITL."""
@@ -625,6 +728,8 @@ class AutoTestPlane(AutoTest):
 
             self.run_test("Takeoff", self.takeoff)
 
+            self.run_test("Set Attitude Target", self.set_attitude_target)
+
             self.run_test("Fly left circuit", self.fly_left_circuit)
 
             self.run_test("Left roll", lambda: self.axial_left_roll(1))
@@ -648,6 +753,9 @@ class AutoTestPlane(AutoTest):
             self.run_test("Mission test",
                           lambda: self.fly_mission(
                               os.path.join(testdir, "ap1.txt")))
+
+            self.run_test("Test Gripper mission items",
+                          self.test_gripper_mission)
 
             self.run_test("Log download",
                           lambda: self.log_download(

@@ -199,5 +199,7 @@ enum {
 };
 
 enum FlightOptions {
-    DIRECT_RUDDER_ONLY = (1 << 0),
+    DIRECT_RUDDER_ONLY   = (1 << 0),
+    CRUISE_TRIM_THROTTLE = (1 << 1),
+    DISABLE_TOFF_ATTITUDE_CHK = (1 << 2),
 };

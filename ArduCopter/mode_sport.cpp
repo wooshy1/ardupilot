@@ -8,8 +8,8 @@
 bool Copter::ModeSport::init(bool ignore_checks)
 {
     // initialize vertical speed and acceleration
-    pos_control->set_speed_z(-get_pilot_speed_dn(), g.pilot_speed_up);
-    pos_control->set_accel_z(g.pilot_accel_z);
+    pos_control->set_max_speed_z(-get_pilot_speed_dn(), g.pilot_speed_up);
+    pos_control->set_max_accel_z(g.pilot_accel_z);
 
     // initialise position and desired velocity
     if (!pos_control->is_active_z()) {
@@ -28,8 +28,8 @@ void Copter::ModeSport::run()
     float takeoff_climb_rate = 0.0f;
 
     // initialize vertical speed and acceleration
-    pos_control->set_speed_z(-get_pilot_speed_dn(), g.pilot_speed_up);
-    pos_control->set_accel_z(g.pilot_accel_z);
+    pos_control->set_max_speed_z(-get_pilot_speed_dn(), g.pilot_speed_up);
+    pos_control->set_max_accel_z(g.pilot_accel_z);
 
     // apply SIMPLE mode transform
     update_simple_mode();
@@ -51,17 +51,17 @@ void Copter::ModeSport::run()
     int32_t pitch_angle = wrap_180_cd(att_target.y);
     target_pitch_rate -= constrain_int32(pitch_angle, -ACRO_LEVEL_MAX_ANGLE, ACRO_LEVEL_MAX_ANGLE) * g.acro_balance_pitch;
 
-    AP_Vehicle::MultiCopter &aparm = copter.aparm;
-    if (roll_angle > aparm.angle_max){
-        target_roll_rate -=  g.acro_rp_p*(roll_angle-aparm.angle_max);
-    }else if (roll_angle < -aparm.angle_max) {
-        target_roll_rate -=  g.acro_rp_p*(roll_angle+aparm.angle_max);
+    const float angle_max = copter.aparm.angle_max;
+    if (roll_angle > angle_max){
+        target_roll_rate -=  g.acro_rp_p*(roll_angle-angle_max);
+    }else if (roll_angle < -angle_max) {
+        target_roll_rate -=  g.acro_rp_p*(roll_angle+angle_max);
     }
 
-    if (pitch_angle > aparm.angle_max){
-        target_pitch_rate -=  g.acro_rp_p*(pitch_angle-aparm.angle_max);
-    }else if (pitch_angle < -aparm.angle_max) {
-        target_pitch_rate -=  g.acro_rp_p*(pitch_angle+aparm.angle_max);
+    if (pitch_angle > angle_max){
+        target_pitch_rate -=  g.acro_rp_p*(pitch_angle-angle_max);
+    }else if (pitch_angle < -angle_max) {
+        target_pitch_rate -=  g.acro_rp_p*(pitch_angle+angle_max);
     }
 
     // get pilot's desired yaw rate

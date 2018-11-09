@@ -161,7 +161,7 @@ void NavEKF3_core::writeWheelOdom(float delAng, float delTime, uint32_t timeStam
 
 // write the raw optical flow measurements
 // this needs to be called externally.
-void NavEKF3_core::writeOptFlowMeas(uint8_t &rawFlowQuality, Vector2f &rawFlowRates, Vector2f &rawGyroRates, uint32_t &msecFlowMeas, const Vector3f &posOffset)
+void NavEKF3_core::writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f &rawFlowRates, const Vector2f &rawGyroRates, const uint32_t msecFlowMeas, const Vector3f &posOffset)
 {
     // limit update rate to maximum allowed by sensor buffers
     if ((imuSampleTime_ms - flowMeaTime_ms) < frontend->sensorIntervalMin_ms) {
@@ -247,6 +247,18 @@ void NavEKF3_core::readMagData()
         return;
     }
 
+    if (_ahrs->get_compass()->learn_offsets_enabled()) {
+        // while learning offsets keep all mag states reset
+        InitialiseVariablesMag();
+        wasLearningCompass_ms = imuSampleTime_ms;
+    } else if (wasLearningCompass_ms != 0 && imuSampleTime_ms - wasLearningCompass_ms > 1000) {
+        wasLearningCompass_ms = 0;
+        // force a new yaw alignment 1s after learning completes. The
+        // delay is to ensure any buffered mag samples are discarded
+        yawAlignComplete = false;
+        InitialiseVariablesMag();
+    }
+    
     // limit compass update rate to prevent high processor loading because magnetometer fusion is an expensive step and we could overflow the FIFO buffer
     if (use_compass() && ((_ahrs->get_compass()->last_update_usec() - lastMagUpdate_us) > 1000 * frontend->sensorIntervalMin_ms)) {
         frontend->logging.log_compass = true;

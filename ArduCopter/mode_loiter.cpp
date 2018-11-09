@@ -84,8 +84,8 @@ void Copter::ModeLoiter::run()
     float takeoff_climb_rate = 0.0f;
 
     // initialize vertical speed and acceleration
-    pos_control->set_speed_z(-get_pilot_speed_dn(), g.pilot_speed_up);
-    pos_control->set_accel_z(g.pilot_accel_z);
+    pos_control->set_max_speed_z(-get_pilot_speed_dn(), g.pilot_speed_up);
+    pos_control->set_max_accel_z(g.pilot_accel_z);
 
     // process pilot inputs unless we are in radio failsafe
     if (!copter.failsafe.radio) {
@@ -143,7 +143,7 @@ void Copter::ModeLoiter::run()
         attitude_control->set_yaw_target_to_current_heading();
         pos_control->relax_alt_hold_controllers(0.0f);   // forces throttle output to go to zero
 #endif
-        loiter_nav->update(ekfGndSpdLimit, ekfNavVelGainScaler);
+        loiter_nav->update();
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(loiter_nav->get_roll(), loiter_nav->get_pitch(), target_yaw_rate);
         pos_control->update_z_controller();
         break;
@@ -168,7 +168,7 @@ void Copter::ModeLoiter::run()
         target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);
 
         // run loiter controller
-        loiter_nav->update(ekfGndSpdLimit, ekfNavVelGainScaler);
+        loiter_nav->update();
 
         // call attitude controller
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(loiter_nav->get_roll(), loiter_nav->get_pitch(), target_yaw_rate);
@@ -206,7 +206,7 @@ void Copter::ModeLoiter::run()
 #endif
 
         // run loiter controller
-        loiter_nav->update(ekfGndSpdLimit, ekfNavVelGainScaler);
+        loiter_nav->update();
 
         // call attitude controller
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(loiter_nav->get_roll(), loiter_nav->get_pitch(), target_yaw_rate);
