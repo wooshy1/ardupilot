@@ -50,6 +50,10 @@ uint8_t GCS_MAVLINK::mavlink_active = 0;
 uint8_t GCS_MAVLINK::chan_is_streaming = 0;
 uint32_t GCS_MAVLINK::reserve_param_space_start_ms;
 
+// private channels are ones used for point-to-point protocols, and
+// don't get broadcasts or fwded packets
+uint8_t GCS_MAVLINK::mavlink_private = 0;
+
 GCS *GCS::_singleton = nullptr;
 
 GCS_MAVLINK::GCS_MAVLINK()
@@ -900,7 +904,10 @@ void GCS_MAVLINK::packetReceived(const mavlink_status_t &status,
     // we exclude radio packets because we historically used this to
     // make it possible to use the CLI over the radio
     if (msg.msgid != MAVLINK_MSG_ID_RADIO && msg.msgid != MAVLINK_MSG_ID_RADIO_STATUS) {
-        mavlink_active |= (1U<<(chan-MAVLINK_COMM_0));
+        const uint8_t mask = (1U<<(chan-MAVLINK_COMM_0));
+        if (!(mask & mavlink_private)) {
+            mavlink_active |= mask;
+        }
     }
     if (!(status.flags & MAVLINK_STATUS_FLAG_IN_MAVLINK1) &&
         (status.flags & MAVLINK_STATUS_FLAG_OUT_MAVLINK1) &&
@@ -985,7 +992,7 @@ GCS_MAVLINK::update(uint32_t max_time_us)
 
     // send a timesync message every 10 seconds; this is for data
     // collection purposes
-    if (tnow - _timesync_request.last_sent_ms > _timesync_request.interval_ms) {
+    if (tnow - _timesync_request.last_sent_ms > _timesync_request.interval_ms && !is_private()) {
         if (HAVE_PAYLOAD_SPACE(chan, TIMESYNC)) {
             send_timesync();
             _timesync_request.last_sent_ms = tnow;
@@ -998,6 +1005,7 @@ GCS_MAVLINK::update(uint32_t max_time_us)
         // stop waypoint receiving if timeout
         if (tnow - waypoint_timelast_receive > wp_recv_time+waypoint_receive_timeout) {
             waypoint_receiving = false;
+            gcs().send_text(MAV_SEVERITY_WARNING, "Mission upload timeout");
         } else if (tnow - waypoint_timelast_request > wp_recv_time) {
             waypoint_timelast_request = tnow;
             send_message(MSG_NEXT_WAYPOINT);
@@ -1481,16 +1489,19 @@ MAV_RESULT GCS_MAVLINK::_set_mode_common(const MAV_MODE _base_mode, const uint32
 /*
   send OPTICAL_FLOW message
  */
-void GCS_MAVLINK::send_opticalflow(const OpticalFlow &optflow)
+void GCS_MAVLINK::send_opticalflow()
 {
+    const OpticalFlow *optflow = AP::opticalflow();
+
     // exit immediately if no optical flow sensor or not healthy
-    if (!optflow.healthy()) {
+    if (optflow == nullptr ||
+        !optflow->healthy()) {
         return;
     }
 
     // get rates from sensor
-    const Vector2f &flowRate = optflow.flowRate();
-    const Vector2f &bodyRate = optflow.bodyRate();
+    const Vector2f &flowRate = optflow->flowRate();
+    const Vector2f &bodyRate = optflow->bodyRate();
 
     const AP_AHRS &ahrs = AP::ahrs();
     float hagl = 0;
@@ -1507,9 +1518,9 @@ void GCS_MAVLINK::send_opticalflow(const OpticalFlow &optflow)
         0, // sensor id is zero
         flowRate.x,
         flowRate.y,
-        bodyRate.x,
-        bodyRate.y,
-        optflow.quality(),
+        flowRate.x - bodyRate.x,
+        flowRate.y - bodyRate.y,
+        optflow->quality(),
         hagl,  // ground distance (in meters) set to zero
         flowRate.x,
         flowRate.y);
@@ -3149,7 +3160,7 @@ bool GCS_MAVLINK::try_send_message(const enum ap_message id)
 #endif
         break;
 
-    case MSG_EXTENDED_STATUS2:
+    case MSG_MEMINFO:
         CHECK_PAYLOAD_SIZE(MEMINFO);
         send_meminfo();
         break;
@@ -3203,6 +3214,11 @@ bool GCS_MAVLINK::try_send_message(const enum ap_message id)
         send_mount_status();
         break;
 
+    case MSG_OPTICAL_FLOW:
+        CHECK_PAYLOAD_SIZE(OPTICAL_FLOW);
+        send_opticalflow();
+        break;
+
     case MSG_POSITION_TARGET_GLOBAL_INT:
         CHECK_PAYLOAD_SIZE(POSITION_TARGET_GLOBAL_INT);
         send_position_target_global_int();
@@ -3218,12 +3234,12 @@ bool GCS_MAVLINK::try_send_message(const enum ap_message id)
         send_raw_imu();
         break;
 
-    case MSG_RAW_IMU2:
+    case MSG_SCALED_PRESSURE:
         CHECK_PAYLOAD_SIZE(SCALED_PRESSURE);
         send_scaled_pressure();
         break;
 
-    case MSG_RAW_IMU3:
+    case MSG_SENSOR_OFFSETS:
         CHECK_PAYLOAD_SIZE(SENSOR_OFFSETS);
         send_sensor_offsets();
         break;
@@ -3335,20 +3351,12 @@ void GCS_MAVLINK::data_stream_send(void)
 
 /*
   correct an offboard timestamp in microseconds into a local timestamp
-  since boot in milliseconds. This is a transport lag correction function, and works by assuming two key things:
-
-   1) the data did not come from the future in our time-domain
-   2) the data is not older than max_lag_ms in our time-domain
-
-  It works by estimating the transport lag by looking for the incoming
-  packet that had the least lag, and converging on the offset that is
-  associated with that lag
+  since boot in milliseconds. See the JitterCorrection code for details
 
   Return a value in milliseconds since boot (for use by the EKF)
  */
 uint32_t GCS_MAVLINK::correct_offboard_timestamp_usec_to_ms(uint64_t offboard_usec, uint16_t payload_size)
 {
-    const uint32_t max_lag_us = 500*1000UL;
     uint64_t local_us;
     // if the HAL supports it then constrain the latest possible time
     // the packet could have been sent by the uart receive time and
@@ -3359,58 +3367,9 @@ uint32_t GCS_MAVLINK::correct_offboard_timestamp_usec_to_ms(uint64_t offboard_us
     } else {
         local_us = AP_HAL::micros64();
     }
-    int64_t diff_us = int64_t(local_us) - int64_t(offboard_usec);
+    uint64_t corrected_us = lag_correction.correct_offboard_timestamp_usec(offboard_usec, local_us);
 
-    if (!lag_correction.initialised ||
-        diff_us < lag_correction.link_offset_usec) {
-        // this message arrived from the remote system with a
-        // timestamp that would imply the message was from the
-        // future. We know that isn't possible, so we adjust down the
-        // correction value
-        lag_correction.link_offset_usec = diff_us;
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-        printf("link_offset_usec=%lld\n", (long long int)diff_us);
-#endif
-        lag_correction.initialised = true;
-    }
-
-    int64_t estimate_us = offboard_usec + lag_correction.link_offset_usec;
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    if (estimate_us > (int64_t)local_us) {
-        // this should be impossible, just check it under SITL
-        printf("msg from future %lld\n", (long long int)(estimate_us - local_us));
-    }
-#endif
-
-    if (estimate_us + max_lag_us < int64_t(local_us)) {
-        // this implies the message came from too far in the past. Clamp the lag estimate
-        // to assume the message had maximum lag
-        estimate_us = local_us - max_lag_us;
-        lag_correction.link_offset_usec = estimate_us - offboard_usec;
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-        printf("offboard timestammp too old %lld\n", (long long int)(local_us - estimate_us));
-#endif
-    }
-
-    if (lag_correction.min_sample_counter == 0) {
-        lag_correction.min_sample_us = diff_us;
-    }
-    lag_correction.min_sample_counter++;
-    if (diff_us < lag_correction.min_sample_us) {
-        lag_correction.min_sample_us = diff_us;
-    }
-    if (lag_correction.min_sample_counter == 200) {
-        // we have 200 samples of the transport lag. To
-        // account for long term clock drift we set the diff we will
-        // use in future to this value
-        lag_correction.link_offset_usec = lag_correction.min_sample_us;
-        lag_correction.min_sample_counter = 0;
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-        printf("new link_offset_usec=%lld\n", (long long int)(lag_correction.min_sample_us));
-#endif
-    }
-    
-    return estimate_us / 1000U;
+    return corrected_us / 1000U;
 }
 
 GCS &gcs()

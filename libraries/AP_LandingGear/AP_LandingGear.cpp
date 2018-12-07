@@ -4,28 +4,13 @@
 #include <SRV_Channel/SRV_Channel.h>
 #include <AP_HAL/AP_HAL.h>
 #include <DataFlash/DataFlash.h>
+#include <GCS_MAVLink/GCS.h>
 
 extern const AP_HAL::HAL& hal;
 
 const AP_Param::GroupInfo AP_LandingGear::var_info[] = {
 
-    // @Param: SERVO_RTRACT
-    // @DisplayName: Landing Gear Servo Retracted PWM Value
-    // @Description: Servo PWM value in microseconds when landing gear is retracted
-    // @Range: 1000 2000
-    // @Units: PWM
-    // @Increment: 1
-    // @User: Standard
-    AP_GROUPINFO("SERVO_RTRACT", 0, AP_LandingGear, _servo_retract_pwm, AP_LANDINGGEAR_SERVO_RETRACT_PWM_DEFAULT),
-
-    // @Param: SERVO_DEPLOY
-    // @DisplayName: Landing Gear Servo Deployed PWM Value
-    // @Description: Servo PWM value in microseconds when landing gear is deployed
-    // @Range: 1000 2000
-    // @Units: PWM
-    // @Increment: 1
-    // @User: Standard
-    AP_GROUPINFO("SERVO_DEPLOY", 1, AP_LandingGear, _servo_deploy_pwm, AP_LANDINGGEAR_SERVO_DEPLOY_PWM_DEFAULT),
+    // 0 and 1 used by previous retract and deploy pwm, now replaced with SERVOn_MIN/MAX/REVERSED
 
     // @Param: STARTUP
     // @DisplayName: Landing Gear Startup position
@@ -63,6 +48,24 @@ const AP_Param::GroupInfo AP_LandingGear::var_info[] = {
     // @Values: 0:Low,1:High
     // @User: Standard
     AP_GROUPINFO("WOW_POL", 6, AP_LandingGear, _pin_weight_on_wheels_polarity, DEFAULT_PIN_WOW_POL),
+
+    // @Param: DEPLOY_ALT
+    // @DisplayName: Landing gear deployment altitude
+    // @Description: Altitude where the landing gear will be deployed. This should be lower than the RETRACT_ALT. If zero then altitude is not used for deploying landing gear. Only applies when vehicle is armed.
+    // @Units: m
+    // @Range: 0 1000
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("DEPLOY_ALT", 7, AP_LandingGear, _deploy_alt, 0),
+
+    // @Param: RETRACT_ALT
+    // @DisplayName: Landing gear retract altitude
+    // @Description: Altitude where the landing gear will be retracted. This should be higher than the DEPLOY_ALT. If zero then altitude is not used for retracting landing gear. Only applies when vehicle is armed.
+    // @Units: m
+    // @Range: 0 1000
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("RETRACT_ALT", 8, AP_LandingGear, _retract_alt, 0),
     
     AP_GROUPEND
 };
@@ -117,20 +120,26 @@ void AP_LandingGear::set_position(LandingGearCommand cmd)
 void AP_LandingGear::deploy()
 {
     // set servo PWM to deployed position
-    SRV_Channels::set_output_pwm(SRV_Channel::k_landing_gear_control, _servo_deploy_pwm);
+    SRV_Channels::set_output_limit(SRV_Channel::k_landing_gear_control, SRV_Channel::SRV_CHANNEL_LIMIT_MAX);
 
     // set deployed flag
     _deployed = true;
+    _have_changed = true;
+
+    gcs().send_text(MAV_SEVERITY_INFO, "LandingGear: DEPLOY");
 }
 
 /// retract - retract landing gear
 void AP_LandingGear::retract()
 {
     // set servo PWM to retracted position
-    SRV_Channels::set_output_pwm(SRV_Channel::k_landing_gear_control, _servo_retract_pwm);
+    SRV_Channels::set_output_limit(SRV_Channel::k_landing_gear_control, SRV_Channel::SRV_CHANNEL_LIMIT_MIN);
 
     // reset deployed flag
     _deployed = false;
+    _have_changed = true;
+
+    gcs().send_text(MAV_SEVERITY_INFO, "LandingGear: RETRACT");
 }
 
 bool AP_LandingGear::deployed()
@@ -170,7 +179,7 @@ uint32_t AP_LandingGear::get_wow_state_duration_ms()
     return AP_HAL::millis() - last_wow_event_ms;
 }
 
-void AP_LandingGear::update()
+void AP_LandingGear::update(float height_above_ground_m)
 {
     if (_pin_weight_on_wheels == -1) {
         last_wow_event_ms = 0;
@@ -189,7 +198,11 @@ void AP_LandingGear::update()
     
     if (_pin_deployed == -1) {
         last_gear_event_ms = 0;
-        gear_state_current = (_deployed == true ? LG_DEPLOYED : LG_RETRACTED);
+        
+        // If there was no pilot input and state is still unknown - leave it as it is
+        if (gear_state_current != LG_UNKNOWN) {
+            gear_state_current = (_deployed == true ? LG_DEPLOYED : LG_RETRACTED);
+        }
     } else {
         LG_LandingGear_State gear_state_new;
         
@@ -208,6 +221,30 @@ void AP_LandingGear::update()
         
         gear_state_current = gear_state_new;
     }
+
+    /*
+      check for height based triggering
+     */
+    int16_t alt_m = constrain_int16(height_above_ground_m, 0, INT16_MAX);
+
+    if (hal.util->get_soft_armed()) {
+        // only do height based triggering when armed
+        if ((!_deployed || !_have_changed) &&
+            _deploy_alt > 0 &&
+            alt_m <= _deploy_alt &&
+            _last_height_above_ground > _deploy_alt) {
+            deploy();
+        }
+        if ((_deployed || !_have_changed) &&
+            _retract_alt > 0 &&
+            _retract_alt >= _deploy_alt &&
+            alt_m >= _retract_alt &&
+            _last_height_above_ground < _retract_alt) {
+            retract();
+        }
+    }
+
+    _last_height_above_ground = alt_m;
 }
 
 // log weight on wheels state
@@ -216,4 +253,15 @@ void AP_LandingGear::log_wow_state(LG_WOW_State state)
     DataFlash_Class::instance()->Log_Write("LGR", "TimeUS,LandingGear,WeightOnWheels", "Qbb",
                                            AP_HAL::micros64(),
                                            (int8_t)gear_state_current, (int8_t)state);
+}
+
+bool AP_LandingGear::check_before_land(void)
+{
+    // If the landing gear state is not known (most probably as it is not used)
+    if (get_state() == LG_UNKNOWN) {
+        return true;
+    }
+    
+    // If the landing gear was not used - return true, otherwise - check for deployed
+    return (get_state() == LG_DEPLOYED);
 }

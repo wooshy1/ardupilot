@@ -10,11 +10,6 @@ void Sub::gcs_send_heartbeat()
     gcs().send_message(MSG_HEARTBEAT);
 }
 
-void Sub::gcs_send_deferred()
-{
-    gcs().retry_deferred();
-}
-
 /*
  *  !!NOTE!!
  *
@@ -441,13 +436,6 @@ bool GCS_MAVLINK_Sub::try_send_message(enum ap_message id)
 #endif
         break;
 
-    case MSG_OPTICAL_FLOW:
-#if OPTFLOW == ENABLED
-        CHECK_PAYLOAD_SIZE(OPTICAL_FLOW);
-        send_opticalflow(sub.optflow);
-#endif
-        break;
-
     case MSG_PID_TUNING:
         CHECK_PAYLOAD_SIZE(PID_TUNING);
         sub.send_pid_tuning(chan);
@@ -538,12 +526,12 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
 
 static const ap_message STREAM_RAW_SENSORS_msgs[] = {
     MSG_RAW_IMU1,  // RAW_IMU, SCALED_IMU2, SCALED_IMU3
-    MSG_RAW_IMU2,  // SCALED_PRESSURE, SCALED_PRESSURE2, SCALED_PRESSURE3
-    MSG_RAW_IMU3  // SENSOR_OFFSETS
+    MSG_SCALED_PRESSURE,  // SCALED_PRESSURE, SCALED_PRESSURE2, SCALED_PRESSURE3
+    MSG_SENSOR_OFFSETS
 };
 static const ap_message STREAM_EXTENDED_STATUS_msgs[] = {
     MSG_EXTENDED_STATUS1, // SYS_STATUS, POWER_STATUS
-    MSG_EXTENDED_STATUS2, // MEMINFO
+    MSG_MEMINFO,
     MSG_CURRENT_WAYPOINT,
     MSG_GPS_RAW,
     MSG_GPS_RTK,
@@ -1152,9 +1140,9 @@ void Sub::mavlink_delay_cb()
     }
     if (tnow - last_50hz > 20) {
         last_50hz = tnow;
-        gcs_update();
-        gcs_data_stream_send();
-        gcs_send_deferred();
+        gcs().update();
+        gcs().data_stream_send();
+        gcs().retry_deferred();
         notify.update();
     }
     if (tnow - last_5s > 5000) {
@@ -1163,22 +1151,6 @@ void Sub::mavlink_delay_cb()
     }
 
     DataFlash.EnableWrites(true);
-}
-
-/*
- *  send data streams in the given rate range on both links
- */
-void Sub::gcs_data_stream_send()
-{
-    gcs().data_stream_send();
-}
-
-/*
- *  look for incoming commands on the GCS links
- */
-void Sub::gcs_update()
-{
-    gcs().update();
 }
 
 AP_Mission *GCS_MAVLINK_Sub::get_mission()

@@ -204,7 +204,7 @@ private:
 
     // Optical flow sensor
 #if OPTFLOW == ENABLED
-    OpticalFlow optflow{ahrs};
+    OpticalFlow optflow;
 #endif
 
     // system time in milliseconds of last recorded yaw reset from ekf
@@ -474,7 +474,6 @@ private:
     void update_poscon_alt_max();
     void rotate_body_frame_to_NE(float &x, float &y);
     void gcs_send_heartbeat(void);
-    void gcs_send_deferred(void);
     void send_heartbeat(mavlink_channel_t chan);
     void send_extended_status1(mavlink_channel_t chan);
     void send_nav_controller_output(mavlink_channel_t chan);
@@ -483,9 +482,6 @@ private:
     void rpm_update();
 #endif
     void send_pid_tuning(mavlink_channel_t chan);
-    void gcs_data_stream_send(void);
-    void gcs_update(void);
-    void Log_Write_Optflow();
     void Log_Write_Control_Tuning();
     void Log_Write_Performance();
     void Log_Write_Attitude();
@@ -617,7 +613,6 @@ private:
     void init_compass();
 #if OPTFLOW == ENABLED
     void init_optflow();
-    void update_optical_flow(void);
 #endif
     void terrain_update();
     void terrain_logging();

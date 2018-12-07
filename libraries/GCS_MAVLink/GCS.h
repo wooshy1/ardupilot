@@ -22,6 +22,7 @@
 #include <AP_AdvancedFailsafe/AP_AdvancedFailsafe.h>
 #include <AP_VisualOdom/AP_VisualOdom.h>
 #include <AP_Common/AP_FWVersion.h>
+#include <AP_RTC/JitterCorrection.h>
 
 // check if a message will fit in the payload space available
 #define PAYLOAD_SIZE(chan, id) (GCS_MAVLINK::packet_overhead_chan(chan)+MAVLINK_MSG_ID_ ## id ## _LEN)
@@ -39,15 +40,15 @@ enum ap_message : uint8_t {
     MSG_ATTITUDE,
     MSG_LOCATION,
     MSG_EXTENDED_STATUS1,
-    MSG_EXTENDED_STATUS2,
+    MSG_MEMINFO,
     MSG_NAV_CONTROLLER_OUTPUT,
     MSG_CURRENT_WAYPOINT,
     MSG_VFR_HUD,
     MSG_SERVO_OUTPUT_RAW,
     MSG_RADIO_IN,
     MSG_RAW_IMU1,
-    MSG_RAW_IMU2,
-    MSG_RAW_IMU3,
+    MSG_SCALED_PRESSURE,
+    MSG_SENSOR_OFFSETS,
     MSG_GPS_RAW,
     MSG_GPS_RTK,
     MSG_GPS2_RAW,
@@ -183,7 +184,7 @@ public:
     void send_ahrs();
     void send_battery2();
 #if AP_AHRS_NAVEKF_AVAILABLE
-    void send_opticalflow(const OpticalFlow &optflow);
+    void send_opticalflow();
 #endif
     virtual void send_attitude() const;
     void send_autopilot_version() const;
@@ -206,6 +207,18 @@ public:
 
     // return a bitmap of streaming channels
     static uint8_t streaming_channel_mask(void) { return chan_is_streaming; }
+
+    // set a channel as private. Private channels get sent heartbeats, but
+    // don't get broadcast packets or forwarded packets
+    static void set_channel_private(mavlink_channel_t chan);
+
+    // return true if channel is private
+    static bool is_private(mavlink_channel_t _chan) {
+        return (mavlink_private & (1U<<(unsigned)_chan)) != 0;
+    }
+    
+    // return true if channel is private
+    bool is_private(void) const { return is_private(chan); }
 
     // send queued parameters if needed
     void send_queued_parameters(void);
@@ -435,7 +448,6 @@ private:
     // waypoints
     uint16_t        waypoint_dest_sysid; // where to send requests
     uint16_t        waypoint_dest_compid; // "
-    uint16_t        waypoint_count;
     uint32_t        waypoint_timelast_receive; // milliseconds
     uint32_t        waypoint_timelast_request; // milliseconds
     const uint16_t  waypoint_receive_timeout = 8000; // milliseconds
@@ -463,6 +475,9 @@ private:
     
     // bitmask of what mavlink channels are active
     static uint8_t mavlink_active;
+
+    // bitmask of what mavlink channels are private
+    static uint8_t mavlink_private;
 
     // bitmask of what mavlink channels are streaming
     static uint8_t chan_is_streaming;
@@ -557,14 +572,8 @@ private:
         bool active;
     } alternative;
 
-    // state associated with offboard transport lag correction
-    struct {
-        bool initialised;
-        int64_t link_offset_usec;
-        uint32_t min_sample_counter;
-        int64_t min_sample_us;
-    } lag_correction;
-
+    JitterCorrection lag_correction;
+    
     // we cache the current location and send it even if the AHRS has
     // no idea where we are:
     struct Location global_position_current_loc;

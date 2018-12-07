@@ -7,10 +7,6 @@ void Copter::gcs_send_heartbeat(void)
     gcs().send_message(MSG_HEARTBEAT);
 }
 
-void Copter::gcs_send_deferred(void)
-{
-    gcs().retry_deferred();
-}
 
 /*
  *  !!NOTE!!
@@ -314,13 +310,6 @@ bool GCS_MAVLINK_Copter::try_send_message(enum ap_message id)
 #endif
         break;
 
-    case MSG_OPTICAL_FLOW:
-#if OPTFLOW == ENABLED
-        CHECK_PAYLOAD_SIZE(OPTICAL_FLOW);
-        send_opticalflow(copter.optflow);
-#endif
-        break;
-
     case MSG_WIND:
     case MSG_SERVO_OUT:
     case MSG_AOA_SSA:
@@ -442,12 +431,12 @@ AP_GROUPEND
 
 static const ap_message STREAM_RAW_SENSORS_msgs[] = {
     MSG_RAW_IMU1,  // RAW_IMU, SCALED_IMU2, SCALED_IMU3
-    MSG_RAW_IMU2,  // SCALED_PRESSURE, SCALED_PRESSURE2, SCALED_PRESSURE3
-    MSG_RAW_IMU3  // SENSOR_OFFSETS
+    MSG_SCALED_PRESSURE,  // SCALED_PRESSURE, SCALED_PRESSURE2, SCALED_PRESSURE3
+    MSG_SENSOR_OFFSETS
 };
 static const ap_message STREAM_EXTENDED_STATUS_msgs[] = {
     MSG_EXTENDED_STATUS1, // SYS_STATUS, POWER_STATUS
-    MSG_EXTENDED_STATUS2, // MEMINFO
+    MSG_MEMINFO,
     MSG_CURRENT_WAYPOINT, // MISSION_CURRENT
     MSG_GPS_RAW,
     MSG_GPS_RTK,
@@ -1444,9 +1433,9 @@ void Copter::mavlink_delay_cb()
     }
     if (tnow - last_50hz > 20) {
         last_50hz = tnow;
-        gcs_update();
-        gcs_data_stream_send();
-        gcs_send_deferred();
+        gcs().update();
+        gcs().data_stream_send();
+        gcs().retry_deferred();
         notify.update();
     }
     if (tnow - last_5s > 5000) {
@@ -1455,22 +1444,6 @@ void Copter::mavlink_delay_cb()
     }
 
     DataFlash.EnableWrites(true);
-}
-
-/*
- *  send data streams in the given rate range on both links
- */
-void Copter::gcs_data_stream_send(void)
-{
-    gcs().data_stream_send();
-}
-
-/*
- *  look for incoming commands on the GCS links
- */
-void Copter::gcs_update(void)
-{
-    gcs().update();
 }
 
 /*

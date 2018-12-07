@@ -5,9 +5,6 @@
 #include <AP_Param/AP_Param.h>
 #include <AP_Common/AP_Common.h>
 
-#define AP_LANDINGGEAR_SERVO_RETRACT_PWM_DEFAULT    1250    // default PWM value to move servo to when landing gear is up
-#define AP_LANDINGGEAR_SERVO_DEPLOY_PWM_DEFAULT     1750    // default PWM value to move servo to when landing gear is down
-
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 #define DEFAULT_PIN_WOW 8
 #define DEFAULT_PIN_WOW_POL 1
@@ -84,25 +81,26 @@ public:
 
     static const struct AP_Param::GroupInfo        var_info[];
     
-    void update();
+    void update(float height_above_ground_m);
+    
+    bool check_before_land(void);
 
 private:
     // Parameters
-    AP_Int16    _servo_retract_pwm;     // PWM value to move servo to when gear is retracted
-    AP_Int16    _servo_deploy_pwm;      // PWM value to move servo to when gear is deployed
     AP_Int8     _startup_behaviour;     // start-up behaviour (see LandingGearStartupBehaviour)
     
     AP_Int8     _pin_deployed;
     AP_Int8     _pin_deployed_polarity;
     AP_Int8     _pin_weight_on_wheels;
     AP_Int8     _pin_weight_on_wheels_polarity;
+    AP_Int16    _deploy_alt;
+    AP_Int16    _retract_alt;
 
     // internal variables
     bool        _deployed;              // true if the landing gear has been deployed, initialized false
+    bool        _have_changed;          // have we changed the servo state?
 
-    bool        _deploy_lock;           // used to force landing gear to remain deployed until another regular Deploy command is received to reduce accidental retraction
-    bool        _deploy_pin_state;
-    bool        _weight_on_wheels_pin_state;
+    int16_t     _last_height_above_ground;
     
     // debounce
     LG_WOW_State wow_state_current = LG_WOW_UNKNOWN;

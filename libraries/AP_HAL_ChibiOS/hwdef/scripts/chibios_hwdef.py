@@ -59,8 +59,8 @@ bylabel = {}
 # list of SPI devices
 spidev = []
 
-# list of ROMFS files
-romfs = []
+# dictionary of ROMFS files
+romfs = {}
 
 # SPI bus list
 spi_list = []
@@ -121,6 +121,10 @@ def get_alt_function(mcu, pin, function):
     '''return alternative function number for a pin'''
     lib = get_mcu_lib(mcu)
 
+    if function.endswith('_TXINV') or function.endswith('_RXINV'):
+        # RXINV and TXINV are special labels for inversion pins, not alt-functions
+        return None
+    
     if hasattr(lib, "AltFunction_map"):
         alt_map = lib.AltFunction_map
     else:
@@ -741,6 +745,20 @@ def write_SPI_config(f):
     write_SPI_table(f)
 
 
+def get_gpio_bylabel(label):
+    '''get GPIO(n) setting on a pin label, or -1'''
+    p = bylabel.get(label)
+    if p is None:
+        return -1
+    return p.extra_value('GPIO', type=int, default=-1)
+
+def get_extra_bylabel(label, name, default=None):
+    '''get extra setting for a label by name'''
+    p = bylabel.get(label)
+    if p is None:
+        return default
+    return p.extra_value(name, type=str, default=default)
+
 def write_UART_config(f):
     '''write UART config defines'''
     get_config('UART_ORDER')
@@ -773,6 +791,7 @@ def write_UART_config(f):
             '#define HAL_UART_IO_DRIVER ChibiOS::UARTDriver uart_io(HAL_UART_IOMCU_IDX)\n'
         )
         uart_list.append(config['IOMCU_UART'][0])
+        f.write('#define HAL_HAVE_SERVO_VOLTAGE 1\n') # make the assumption that IO gurantees servo monitoring
     else:
         f.write('#define HAL_WITH_IO_MCU 0\n')
     f.write('\n')
@@ -805,8 +824,15 @@ def write_UART_config(f):
             f.write(
                 "#define HAL_%s_CONFIG { (BaseSequentialStream*) &SD%u, false, "
                 % (dev, n))
-            f.write("STM32_%s_RX_DMA_CONFIG, STM32_%s_TX_DMA_CONFIG, %s}\n" %
+            f.write("STM32_%s_RX_DMA_CONFIG, STM32_%s_TX_DMA_CONFIG, %s, " %
                     (dev, dev, rts_line))
+
+            # add inversion pins, if any
+            f.write("%d, " % get_gpio_bylabel(dev + "_RXINV"))
+            f.write("%s, " % get_extra_bylabel(dev + "_RXINV", "POL", "0"))
+            f.write("%d, " % get_gpio_bylabel(dev + "_TXINV"))
+            f.write("%s}\n" % get_extra_bylabel(dev + "_TXINV", "POL", "0"))
+
     f.write('#define HAL_UART_DEVICE_LIST %s\n\n' % ','.join(devlist))
     if not need_uart_driver and not args.bootloader:
         f.write('''
@@ -846,6 +872,8 @@ def write_I2C_config(f):
     if len(i2c_list) == 0:
         error("I2C_ORDER invalid")
     devlist = []
+
+    # write out config structures
     for dev in i2c_list:
         if not dev.startswith('I2C') or dev[3] not in "1234":
             error("Bad I2C_ORDER element %s" % dev)
@@ -853,17 +881,12 @@ def write_I2C_config(f):
         devlist.append('HAL_I2C%u_CONFIG' % n)
         f.write('''
 #if defined(STM32_I2C_I2C%u_RX_DMA_STREAM) && defined(STM32_I2C_I2C%u_TX_DMA_STREAM)
-#define HAL_I2C%u_CONFIG { &I2CD%u, STM32_I2C_I2C%u_RX_DMA_STREAM, STM32_I2C_I2C%u_TX_DMA_STREAM }
+#define HAL_I2C%u_CONFIG { &I2CD%u, STM32_I2C_I2C%u_RX_DMA_STREAM, STM32_I2C_I2C%u_TX_DMA_STREAM, HAL_GPIO_PIN_I2C%u_SCL, HAL_GPIO_PIN_I2C%u_SDA }
 #else
-#define HAL_I2C%u_CONFIG { &I2CD%u, SHARED_DMA_NONE, SHARED_DMA_NONE }
+#define HAL_I2C%u_CONFIG { &I2CD%u, SHARED_DMA_NONE, SHARED_DMA_NONE, HAL_GPIO_PIN_I2C%u_SCL, HAL_GPIO_PIN_I2C%u_SDA }
 #endif
 '''
-            % (n, n, n, n, n, n, n, n))
-        if dev + "_SCL" in bylabel:
-            p = bylabel[dev + "_SCL"]
-            f.write(
-                '#define HAL_%s_SCL_AF %d\n' % (dev, p.af)
-            )
+            % (n, n, n, n, n, n, n, n, n, n, n, n))
     f.write('\n#define HAL_I2C_DEVICE_LIST %s\n\n' % ','.join(devlist))
 
 def parse_timer(str):
@@ -1058,6 +1081,7 @@ def write_ADC_config(f):
         scale = p.extra_value('SCALE', default=None)
         if p.label == 'VDD_5V_SENS':
             f.write('#define ANALOG_VCC_5V_PIN %u\n' % chan)
+            f.write('#define HAL_HAVE_BOARD_VOLTAGE 1\n')
         adc_chans.append((chan, scale, p.label, p.portpin))
     adc_chans = sorted(adc_chans)
     vdd = get_config('STM32_VDD')
@@ -1133,11 +1157,14 @@ def add_bootloader():
     '''added bootloader to ROMFS'''
     bp = bootloader_path()
     if bp is not None:
-        romfs.append( ("bootloader.bin", bp) )
+        romfs["bootloader.bin"] = bp
 
 def write_ROMFS(outdir):
     '''create ROMFS embedded header'''
-    env_vars['ROMFS_FILES'] = romfs
+    romfs_list = []
+    for k in romfs.keys():
+        romfs_list.append((k, romfs[k]))
+    env_vars['ROMFS_FILES'] = romfs_list
 
 def write_prototype_file():
     '''write the prototype file for apj generation'''
@@ -1370,7 +1397,7 @@ def write_env_py(filename):
 
 def romfs_add(romfs_filename, filename):
     '''add a file to ROMFS'''
-    romfs.append((romfs_filename, filename))
+    romfs[romfs_filename] = filename
 
 def romfs_wildcard(pattern):
     '''add a set of files to ROMFS by wildcard'''
@@ -1378,7 +1405,7 @@ def romfs_wildcard(pattern):
     (pattern_dir, pattern) = os.path.split(pattern)
     for f in os.listdir(os.path.join(base_path, pattern_dir)):
         if fnmatch.fnmatch(f, pattern):
-            romfs.append((f, os.path.join(pattern_dir, f)))
+            romfs[f] = os.path.join(pattern_dir, f)
     
 def process_line(line):
     '''process one line of pin definition file'''

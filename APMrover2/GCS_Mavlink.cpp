@@ -467,12 +467,12 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
 
 static const ap_message STREAM_RAW_SENSORS_msgs[] = {
     MSG_RAW_IMU1,  // RAW_IMU, SCALED_IMU2, SCALED_IMU3
-    MSG_RAW_IMU2,  // BARO
-    MSG_RAW_IMU3  // SENSOR_OFFSETS
+    MSG_SCALED_PRESSURE,  // SCALED_PRESSURE, SCALED_PRESSURE2, SCALED_PRESSURE3
+    MSG_SENSOR_OFFSETS
 };
 static const ap_message STREAM_EXTENDED_STATUS_msgs[] = {
     MSG_EXTENDED_STATUS1, // SYS_STATUS, POWER_STATUS
-    MSG_EXTENDED_STATUS2, // MEMINFO
+    MSG_MEMINFO,
     MSG_CURRENT_WAYPOINT,
     MSG_GPS_RAW,
     MSG_GPS_RTK,
@@ -642,12 +642,16 @@ MAV_RESULT GCS_MAVLINK_Rover::handle_command_long_packet(const mavlink_command_l
     switch (packet.command) {
 
     case MAV_CMD_NAV_RETURN_TO_LAUNCH:
-        rover.set_mode(rover.mode_rtl, MODE_REASON_GCS_COMMAND);
-        return MAV_RESULT_ACCEPTED;
+        if (rover.set_mode(rover.mode_rtl, MODE_REASON_GCS_COMMAND)) {
+            return MAV_RESULT_ACCEPTED;
+        }
+        return MAV_RESULT_FAILED;
 
     case MAV_CMD_MISSION_START:
-        rover.set_mode(rover.mode_auto, MODE_REASON_GCS_COMMAND);
-        return MAV_RESULT_ACCEPTED;
+        if (rover.set_mode(rover.mode_auto, MODE_REASON_GCS_COMMAND)) {
+            return MAV_RESULT_ACCEPTED;
+        }
+        return MAV_RESULT_FAILED;
 
     case MAV_CMD_COMPONENT_ARM_DISARM:
         if (is_equal(packet.param1, 1.0f)) {
@@ -725,7 +729,7 @@ MAV_RESULT GCS_MAVLINK_Rover::handle_command_long_packet(const mavlink_command_l
 
         // exit if vehicle is not in Guided mode
         if (rover.control_mode != &rover.mode_guided) {
-            return MAV_RESULT_UNSUPPORTED;
+            return MAV_RESULT_FAILED;
         }
 
         // send yaw change and target speed to guided mode controller
@@ -1166,8 +1170,8 @@ void Rover::mavlink_delay_cb()
     }
     if (tnow - last_50hz > 20) {
         last_50hz = tnow;
-        gcs_update();
-        gcs_data_stream_send();
+        gcs().update();
+        gcs().data_stream_send();
         notify.update();
     }
     if (tnow - last_5s > 5000) {
@@ -1176,30 +1180,6 @@ void Rover::mavlink_delay_cb()
     }
 
     DataFlash.EnableWrites(true);
-}
-
-/*
- *  send data streams in the given rate range on both links
- */
-void Rover::gcs_data_stream_send(void)
-{
-    gcs().data_stream_send();
-}
-
-/*
- *  look for incoming commands on the GCS links
- */
-void Rover::gcs_update(void)
-{
-    gcs().update();
-}
-
-/**
-   retry any deferred messages
- */
-void Rover::gcs_retry_deferred(void)
-{
-    gcs().retry_deferred();
 }
 
 /*
