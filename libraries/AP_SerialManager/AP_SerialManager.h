@@ -46,8 +46,8 @@
 // FrSky default baud rates, use default buffer sizes
 #define AP_SERIALMANAGER_FRSKY_D_BAUD           9600
 #define AP_SERIALMANAGER_FRSKY_SPORT_BAUD       57600
-#define AP_SERIALMANAGER_FRSKY_BUFSIZE_RX       128
-#define AP_SERIALMANAGER_FRSKY_BUFSIZE_TX       256
+#define AP_SERIALMANAGER_FRSKY_BUFSIZE_RX       0
+#define AP_SERIALMANAGER_FRSKY_BUFSIZE_TX       0
 
 // GPS default baud rates and buffer sizes
 // we need a 256 byte buffer for some GPS types (eg. UBLOX)
