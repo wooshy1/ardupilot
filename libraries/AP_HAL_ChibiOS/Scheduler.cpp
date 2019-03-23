@@ -351,11 +351,22 @@ void Scheduler::_io_thread(void* arg)
     while (!sched->_hal_initialized) {
         sched->delay_microseconds(1000);
     }
+    uint32_t last_sd_start_ms = AP_HAL::millis();
     while (true) {
         sched->delay_microseconds(1000);
 
         // run registered IO processes
         sched->_run_io();
+
+        if (!hal.util->get_soft_armed()) {
+            // if sdcard hasn't mounted then retry it every 3s in the IO
+            // thread when disarmed
+            uint32_t now = AP_HAL::millis();
+            if (now - last_sd_start_ms > 3000) {
+                sdcard_retry();
+                last_sd_start_ms = now;
+            }
+        }
     }
 }
 
@@ -450,8 +461,7 @@ bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_
             break;
         }
     }
-    thread_t *thread_ctx = chThdCreateFromHeap(NULL,
-                                               THD_WORKING_AREA_SIZE(stack_size),
+    thread_t *thread_ctx = thread_create_alloc(THD_WORKING_AREA_SIZE(stack_size),
                                                name,
                                                thread_priority,
                                                thread_create_trampoline,
