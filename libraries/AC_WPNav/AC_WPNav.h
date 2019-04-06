@@ -279,6 +279,7 @@ protected:
     AP_Float    _wp_radius_cm;          // distance from a waypoint in cm that, when crossed, indicates the wp has been reached
     AP_Float    _wp_accel_cmss;          // horizontal acceleration in cm/s/s during missions
     AP_Float    _wp_accel_z_cmss;        // vertical acceleration in cm/s/s during missions
+    AP_Float    _wp_desired_speed_cms;   // desired wp speed in cm/sec
 
     // waypoint controller internal variables
     uint32_t    _wp_last_update;        // time of last update_wpnav call

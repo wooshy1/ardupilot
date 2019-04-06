@@ -146,6 +146,9 @@ void AC_WPNav::wp_and_spline_init()
 
     // initialise feed forward velocity to zero
     _pos_control.set_desired_velocity_xy(0.0f, 0.0f);
+    
+    // initialize desired waypoint speed
+    _wp_desired_speed_cms = _wp_speed_cms;
 
     // initialise position controller speed and acceleration
     _pos_control.set_speed_xy(_wp_speed_cms);
@@ -162,12 +165,9 @@ void AC_WPNav::wp_and_spline_init()
 /// set_speed_xy - allows main code to pass target horizontal velocity for wp navigation
 void AC_WPNav::set_speed_xy(float speed_cms)
 {
-    // range check new target speed and update position controller
+    // range check target speed
     if (speed_cms >= WPNAV_WP_SPEED_MIN) {
-        _wp_speed_cms = speed_cms;
-        _pos_control.set_speed_xy(_wp_speed_cms);
-        // flag that wp leash must be recalculated
-        _flags.recalc_wp_leash = true;
+        _wp_desired_speed_cms = speed_cms;
     }
 }
 
@@ -507,6 +507,22 @@ bool AC_WPNav::update_wpnav()
     _pos_control.set_accel_xy(_wp_accel_cmss);
     _pos_control.set_accel_z(_wp_accel_z_cmss);
 
+    // calculate rate of speed change for deceleration
+    if (_wp_desired_speed_cms >= _wp_speed_cms) {
+        _wp_speed_cms = _wp_desired_speed_cms;
+    } else {
+        // slow down request so decay speed to desired
+        _wp_speed_cms -= _wp_accel_cmss * dt;
+        if (_wp_speed_cms < _wp_desired_speed_cms) {
+            _wp_speed_cms = _wp_desired_speed_cms;
+        }
+    }
+    
+    //update position controller speed
+    _pos_control.set_speed_xy(_wp_speed_cms);
+    // flag that wp leash must be recalculated
+    _flags.recalc_wp_leash = true;
+
     // advance the target if necessary
     if (!advance_wp_target_along_track(dt)) {
         // To-Do: handle inability to advance along track (probably because of missing terrain data)
@@ -793,6 +809,22 @@ bool AC_WPNav::update_spline()
     // get dt from pos controller
     float dt = _pos_control.get_dt();
 
+    // calculate rate of speed change for deceleration
+    if (_wp_desired_speed_cms >= _wp_speed_cms) {
+        _wp_speed_cms = _wp_desired_speed_cms;
+    } else {
+        // slow down request so decay speed to desired
+        _wp_speed_cms -= _wp_accel_cmss * dt;
+        if (_wp_speed_cms < _wp_desired_speed_cms) {
+            _wp_speed_cms = _wp_desired_speed_cms;
+        }
+    }
+    
+    //update position controller speed
+    _pos_control.set_speed_xy(_wp_speed_cms);
+    // flag that wp leash must be recalculated
+    _flags.recalc_wp_leash = true;
+
     // advance the target if necessary
     if (!advance_spline_target_along_track(dt)) {
         // To-Do: handle failure to advance along track (due to missing terrain data)
@@ -886,7 +918,11 @@ bool AC_WPNav::advance_spline_target_along_track(float dt)
 
         // if within the stopping distance from destination, set target velocity to sqrt of distance * 2 * acceleration
         if (!_flags.fast_waypoint && spline_dist_to_wp < _slow_down_dist) {
+        #if FRAME_CONFIG == HELI_FRAME
+            _spline_vel_scaler = safe_sqrt(spline_dist_to_wp * _wp_accel_cmss);
+        #else
             _spline_vel_scaler = safe_sqrt(spline_dist_to_wp * 2.0f * _wp_accel_cmss);
+        #endif
         }else if(_spline_vel_scaler < vel_limit) {
             // increase velocity using acceleration
             _spline_vel_scaler += _wp_accel_cmss * dt;
@@ -1020,7 +1056,11 @@ void AC_WPNav::calc_slow_down_distance(float speed_cms, float accel_cmss)
 	}
     // To-Do: should we use a combination of horizontal and vertical speeds?
     // To-Do: update this automatically when speed or acceleration is changed
+    #if FRAME_CONFIG == HELI_FRAME
+   _slow_down_dist = speed_cms * speed_cms / accel_cmss;
+    #else
     _slow_down_dist = speed_cms * speed_cms / (4.0f*accel_cmss);
+    #endif
 }
 
 /// get_slow_down_speed - returns target speed of target point based on distance from the destination (in cm)
