@@ -73,6 +73,7 @@
 #define CONFIG_SBAS          (1<<12)
 #define CONFIG_RATE_PVT      (1<<13)
 #define CONFIG_TP5           (1<<14)
+#define CONFIG_LAST          (1<<15) // this must always be the last bit
 
 #define CONFIG_REQUIRED_INITIAL (CONFIG_RATE_NAV | CONFIG_RATE_POSLLH | CONFIG_RATE_STATUS | CONFIG_RATE_VELNED)
 
@@ -115,7 +116,7 @@ public:
     }
 
     void broadcast_configuration_failure_reason(void) const override;
-    void Write_DataFlash_Log_Startup_messages() const override;
+    void Write_AP_Logger_Log_Startup_messages() const override;
 
     // get the velocity lag, returns true if the driver is confident in the returned value
     bool get_lag(float &lag_sec) const override;

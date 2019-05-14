@@ -19,6 +19,7 @@
 #include <AP_HAL/AP_HAL.h>
 #include "AP_HAL_ChibiOS_Namespace.h"
 #include "AP_HAL_ChibiOS.h"
+#include <ch.h>
 
 class ChibiOS::Util : public AP_HAL::Util {
 public:
@@ -32,6 +33,12 @@ public:
     // Special Allocation Routines
     void *malloc_type(size_t size, AP_HAL::Util::Memory_Type mem_type) override;
     void free_type(void *ptr, size_t size, AP_HAL::Util::Memory_Type mem_type) override;
+
+#ifdef ENABLE_HEAP
+    // heap functions, note that a heap once alloc'd cannot be dealloc'd
+    virtual void *allocate_heap_memory(size_t size);
+    virtual void *heap_realloc(void *heap, void *ptr, size_t new_size);
+#endif // ENABLE_HEAP
 
     /*
       return state of safety switch, if applicable
@@ -51,6 +58,34 @@ public:
     void toneAlarm_set_buzzer_tone(float frequency, float volume, uint32_t duration_ms) override;
 #endif
 
+#ifdef USE_POSIX
+    /*
+      initialise (or re-initialise) filesystem storage
+     */
+    bool fs_init(void) override;
+#endif
+
+    // return true if the reason for the reboot was a watchdog reset
+    bool was_watchdog_reset() const override;
+
+    // return true if safety was off and this was a watchdog reset
+    bool was_watchdog_safety_off() const override;
+
+    // return true if vehicle was armed and this was a watchdog reset
+    bool was_watchdog_armed() const override;
+
+    // backup home state for restore on watchdog reset
+    void set_backup_home_state(int32_t lat, int32_t lon, int32_t alt_cm) const override;
+
+    // backup home state for restore on watchdog reset
+    bool get_backup_home_state(int32_t &lat, int32_t &lon, int32_t &alt_cm) const override;
+
+    // backup atttude for restore on watchdog reset
+    void set_backup_attitude(int32_t roll_cd, int32_t pitch_cd, int32_t yaw_cd) const override;
+
+    // get watchdog reset attitude
+    bool get_backup_attitude(int32_t &roll_cd, int32_t &pitch_cd, int32_t &yaw_cd) const override;
+    
 private:
 #ifdef HAL_PWM_ALARM
     struct ToneAlarmPwmGroup {
@@ -61,16 +96,16 @@ private:
 
     static ToneAlarmPwmGroup _toneAlarm_pwm_group;
 #endif
-    void* try_alloc_from_ccm_ram(size_t size);
-    uint32_t available_memory_in_ccm_ram(void);
 
-#if HAL_WITH_IO_MCU && HAL_HAVE_IMU_HEATER
+#if HAL_HAVE_IMU_HEATER
     struct {
         int8_t *target;
         float integrator;
         uint16_t count;
         float sum;
         uint32_t last_update_ms;
+        uint8_t duty_counter;
+        float output;
     } heater;
 #endif
 
@@ -86,4 +121,11 @@ private:
 #ifndef HAL_NO_FLASH_SUPPORT
     bool flash_bootloader() override;
 #endif
+
+#ifdef ENABLE_HEAP
+    static memory_heap_t scripting_heap;
+#endif // ENABLE_HEAP
+
+    void set_soft_armed(const bool b) override;
+
 };

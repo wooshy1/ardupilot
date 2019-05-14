@@ -21,7 +21,7 @@
 #include "AP_GPS.h"
 #include "AP_GPS_UBLOX.h"
 #include <AP_HAL/Util.h>
-#include <DataFlash/DataFlash.h>
+#include <AP_Logger/AP_Logger.h>
 #include <GCS_MAVLink/GCS.h>
 
 #if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO || \
@@ -80,8 +80,8 @@ AP_GPS_UBLOX::_request_next_config(void)
 
     Debug("Unconfigured messages: %u Current message: %u\n", (unsigned)_unconfigured_messages, (unsigned)_next_message);
 
-   // check AP_GPS_UBLOX.h for the enum that controls the order.
-   // This switch statement isn't maintained against the enum in order to reduce code churn
+    // check AP_GPS_UBLOX.h for the enum that controls the order.
+    // This switch statement isn't maintained against the enum in order to reduce code churn
     switch (_next_message++) {
     case STEP_PVT:
         if(!_request_message_rate(CLASS_NAV, MSG_PVT)) {
@@ -326,7 +326,8 @@ AP_GPS_UBLOX::_request_port(void)
     }
     _send_message(CLASS_CFG, MSG_CFG_PRT, nullptr, 0);
 }
-    // Ensure there is enough space for the largest possible outgoing message
+
+// Ensure there is enough space for the largest possible outgoing message
 // Process bytes available from the stream
 //
 // The stream is assumed to contain only messages we recognise.  If it
@@ -412,7 +413,7 @@ AP_GPS_UBLOX::read(void)
         case 2:
             _step++;
             _class = data;
-            _ck_b = _ck_a = data;                               // reset the checksum accumulators
+            _ck_b = _ck_a = data;                       // reset the checksum accumulators
             break;
         case 3:
             _step++;
@@ -422,7 +423,7 @@ AP_GPS_UBLOX::read(void)
         case 4:
             _step++;
             _ck_b += (_ck_a += data);                   // checksum byte
-            _payload_length = data;                             // payload length low byte
+            _payload_length = data;                     // payload length low byte
             break;
         case 5:
             _step++;
@@ -436,7 +437,7 @@ AP_GPS_UBLOX::read(void)
                 _step = 0;
 				goto reset;
             }
-            _payload_counter = 0;                               // prepare to receive payload
+            _payload_counter = 0;                       // prepare to receive payload
             break;
 
         // Receive message data
@@ -479,7 +480,7 @@ AP_GPS_UBLOX::read(void)
 // Private Methods /////////////////////////////////////////////////////////////
 void AP_GPS_UBLOX::log_mon_hw(void)
 {
-    if (!should_df_log()) {
+    if (!should_log()) {
         return;
     }
     struct log_Ubx1 pkt = {
@@ -498,12 +499,12 @@ void AP_GPS_UBLOX::log_mon_hw(void)
         pkt.aPower     = _buffer.mon_hw_68.aPower;
         pkt.agcCnt     = _buffer.mon_hw_68.agcCnt;
     }
-    DataFlash_Class::instance()->WriteBlock(&pkt, sizeof(pkt));
+    AP::logger().WriteBlock(&pkt, sizeof(pkt));
 }
 
 void AP_GPS_UBLOX::log_mon_hw2(void)
 {
-    if (!should_df_log()) {
+    if (!should_log()) {
         return;
     }
 
@@ -516,13 +517,13 @@ void AP_GPS_UBLOX::log_mon_hw2(void)
         ofsQ      : _buffer.mon_hw2.ofsQ,
         magQ      : _buffer.mon_hw2.magQ,
     };
-    DataFlash_Class::instance()->WriteBlock(&pkt, sizeof(pkt));
+    AP::logger().WriteBlock(&pkt, sizeof(pkt));
 }
 
 #if UBLOX_RXM_RAW_LOGGING
 void AP_GPS_UBLOX::log_rxm_raw(const struct ubx_rxm_raw &raw)
 {
-    if (!should_df_log()) {
+    if (!should_log()) {
         return;
     }
 
@@ -542,13 +543,13 @@ void AP_GPS_UBLOX::log_rxm_raw(const struct ubx_rxm_raw &raw)
             cno        : raw.svinfo[i].cno,
             lli        : raw.svinfo[i].lli
         };
-        DataFlash_Class::instance()->WriteBlock(&pkt, sizeof(pkt));
+        AP::logger().WriteBlock(&pkt, sizeof(pkt));
     }
 }
 
 void AP_GPS_UBLOX::log_rxm_rawx(const struct ubx_rxm_rawx &raw)
 {
-    if (!should_df_log()) {
+    if (!should_log()) {
         return;
     }
 
@@ -563,7 +564,7 @@ void AP_GPS_UBLOX::log_rxm_rawx(const struct ubx_rxm_rawx &raw)
         numMeas    : raw.numMeas,
         recStat    : raw.recStat
     };
-    DataFlash_Class::instance()->WriteBlock(&header, sizeof(header));
+    AP::logger().WriteBlock(&header, sizeof(header));
 
     for (uint8_t i=0; i<raw.numMeas; i++) {
         struct log_GPS_RAWS pkt = {
@@ -582,7 +583,7 @@ void AP_GPS_UBLOX::log_rxm_rawx(const struct ubx_rxm_rawx &raw)
             doStdev    : raw.svinfo[i].doStdev,
             trkStat    : raw.svinfo[i].trkStat
         };
-        DataFlash_Class::instance()->WriteBlock(&pkt, sizeof(pkt));
+        AP::logger().WriteBlock(&pkt, sizeof(pkt));
     }
 }
 #endif // UBLOX_RXM_RAW_LOGGING
@@ -629,7 +630,7 @@ AP_GPS_UBLOX::_parse_gps(void)
                 case MSG_CFG_RATE:
                     // The GPS will ACK a update rate that is invalid. in order to detect this
                     // only accept the rate as configured by reading the settings back and
-                   //  validating that they all match the target values
+                    // validating that they all match the target values
                     break;
                 case MSG_CFG_SBAS:
                     _unconfigured_messages &= ~CONFIG_SBAS;
@@ -1334,8 +1335,10 @@ static const char *reasons[] = {"navigation rate",
                                 "navigation settings",
                                 "GNSS settings",
                                 "SBAS settings",
-                                "PVT rate"};
+                                "PVT rate",
+                                "time pulse settings"};
 
+static_assert((1 << ARRAY_SIZE(reasons)) == CONFIG_LAST, "UBLOX: Missing configuration description");
 
 void
 AP_GPS_UBLOX::broadcast_configuration_failure_reason(void) const {
@@ -1374,12 +1377,12 @@ bool AP_GPS_UBLOX::get_lag(float &lag_sec) const
     return true;
 }
 
-void AP_GPS_UBLOX::Write_DataFlash_Log_Startup_messages() const
+void AP_GPS_UBLOX::Write_AP_Logger_Log_Startup_messages() const
 {
-    AP_GPS_Backend::Write_DataFlash_Log_Startup_messages();
+    AP_GPS_Backend::Write_AP_Logger_Log_Startup_messages();
 
     if (_have_version) {
-        DataFlash_Class::instance()->Log_Write_MessageF("u-blox %d HW: %s SW: %s",
+        AP::logger().Write_MessageF("u-blox %d HW: %s SW: %s",
                                            state.instance+1,
                                            _version.hwVersion,
                                            _version.swVersion);

@@ -61,7 +61,7 @@ public:
     virtual const char *name() const = 0;
 
     void broadcast_gps_type() const;
-    virtual void Write_DataFlash_Log_Startup_messages() const;
+    virtual void Write_AP_Logger_Log_Startup_messages() const;
 
     virtual bool prepare_for_arming(void) { return true; }
 
@@ -87,7 +87,7 @@ protected:
 
     void _detection_message(char *buffer, uint8_t buflen) const;
 
-    bool should_df_log() const;
+    bool should_log() const;
 
     /*
       set a timestamp based on arrival time on uart at current byte,

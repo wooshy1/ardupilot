@@ -1,4 +1,5 @@
 #include "AP_Mount_Backend.h"
+#include <AP_AHRS/AP_AHRS.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -61,15 +62,17 @@ void AP_Mount_Backend::control(int32_t pitch_or_lat, int32_t roll_or_lon, int32_
             break;
 
         // set lat, lon, alt position targets from mavlink message
-        case MAV_MOUNT_MODE_GPS_POINT:
-            Location target_location;
-            memset(&target_location, 0, sizeof(target_location));
-            target_location.lat = pitch_or_lat;
-            target_location.lng = roll_or_lon;
-            target_location.alt = yaw_or_alt;
-            target_location.flags.relative_alt = true;
+
+        case MAV_MOUNT_MODE_GPS_POINT: {
+            const Location target_location{
+                pitch_or_lat,
+                roll_or_lon,
+                yaw_or_alt,
+                Location::AltFrame::ABOVE_HOME
+            };
             set_roi_target(target_location);
             break;
+        }
 
         default:
             // do nothing
@@ -122,16 +125,10 @@ void AP_Mount_Backend::update_targets_from_rc()
     }
 }
 
-// returns the angle (degrees*100) that the RC_Channel input is receiving
-int32_t AP_Mount_Backend::angle_input(const RC_Channel* rc, int16_t angle_min, int16_t angle_max)
-{
-    return (rc->norm_input() + 1.0f) * 0.5f * (angle_max - angle_min) + angle_min;
-}
-
 // returns the angle (radians) that the RC_Channel input is receiving
 float AP_Mount_Backend::angle_input_rad(const RC_Channel* rc, int16_t angle_min, int16_t angle_max)
 {
-    return radians(angle_input(rc, angle_min, angle_max)*0.01f);
+    return radians(((rc->norm_input() + 1.0f) * 0.5f * (angle_max - angle_min) + angle_min)*0.01f);
 }
 
 // calc_angle_to_location - calculates the earth-frame roll, tilt and pan angles (and radians) to point at the given target

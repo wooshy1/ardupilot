@@ -21,19 +21,20 @@
 #include <stdint.h>
 #include <string.h>
 
+template<uint16_t num_bits>
 class Bitmask {
 public:
-    Bitmask(uint16_t num_bits) :
+    Bitmask() :
         numbits(num_bits),
         numwords((num_bits+31)/32) {
-        bits = new uint32_t[numwords];
         clearall();
     }
-    ~Bitmask(void) {
-        delete[] bits;
+
+    Bitmask &operator=(const Bitmask&other) {
+        memcpy(bits, other.bits, sizeof(bits[0])*other.numwords);
+        return *this;
     }
 
-    Bitmask &operator=(const Bitmask&other) = delete;
     Bitmask(const Bitmask &other) = delete;
 
     // set given bitnumber
@@ -102,6 +103,25 @@ public:
         return sum;
     }
 
+    // return first bit set, or -1 if none set
+    int16_t first_set() const {
+        for (uint16_t i=0; i<numwords; i++) {
+            if (bits[i] == 0) {
+                continue;
+            }
+            int fs;
+            if (sizeof(bits[i]) <= sizeof(int)) {
+                fs = __builtin_ffs(bits[i]);
+            } else if (sizeof(bits[i]) <= sizeof(long)) {
+                fs = __builtin_ffsl(bits[i]);
+            } else {
+                fs = __builtin_ffsll(bits[i]);
+            }
+            return i*32 + fs - 1;
+        }
+        return -1;
+    }
+
     // return number of bits available
     uint16_t size() const {
         return numbits;
@@ -110,5 +130,5 @@ public:
 private:
     uint16_t numbits;
     uint16_t numwords;
-    uint32_t *bits;
+    uint32_t bits[(num_bits+31)/32];
 };

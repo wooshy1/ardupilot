@@ -1,7 +1,7 @@
 #pragma once
 #include <AP_HAL/AP_HAL.h>
 
-#if (HAL_OS_POSIX_IO || HAL_OS_FATFS_IO) && !(HAL_MINIMIZE_FEATURES && CONFIG_HAL_BOARD == HAL_BOARD_PX4)
+#if (HAL_OS_POSIX_IO || HAL_OS_FATFS_IO)
 
 #define HAS_UAVCAN_SERVERS
 
@@ -11,6 +11,7 @@
 class AP_UAVCAN_FileEventTracer;
 class AP_UAVCAN_FileStorageBackend;
 class AP_UAVCAN_CentralizedServer;
+class AP_UAVCAN_RestartRequestHandler;
 
 class AP_UAVCAN_Servers
 {
@@ -23,6 +24,8 @@ private:
     AP_UAVCAN_CentralizedServer *_server_instance;
     AP_UAVCAN_FileEventTracer *_tracer;
     AP_UAVCAN_FileStorageBackend *_storage_backend;
+    AP_UAVCAN_RestartRequestHandler *_restart_request_handler; // one for all nodes....
+
 };
 
 #endif

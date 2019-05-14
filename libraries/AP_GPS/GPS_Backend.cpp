@@ -15,6 +15,7 @@
 
 #include "AP_GPS.h"
 #include "GPS_Backend.h"
+#include <AP_Logger/AP_Logger.h>
 
 #define GPS_BACKEND_DEBUGGING 0
 
@@ -163,16 +164,16 @@ void AP_GPS_Backend::broadcast_gps_type() const
     gcs().send_text(MAV_SEVERITY_INFO, buffer);
 }
 
-void AP_GPS_Backend::Write_DataFlash_Log_Startup_messages() const
+void AP_GPS_Backend::Write_AP_Logger_Log_Startup_messages() const
 {
     char buffer[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN+1];
     _detection_message(buffer, sizeof(buffer));
-    DataFlash_Class::instance()->Log_Write_Message(buffer);
+    AP::logger().Write_Message(buffer);
 }
 
-bool AP_GPS_Backend::should_df_log() const
+bool AP_GPS_Backend::should_log() const
 {
-    return gps.should_df_log();
+    return gps.should_log();
 }
 
 

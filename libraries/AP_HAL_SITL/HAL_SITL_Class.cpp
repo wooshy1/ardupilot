@@ -23,7 +23,7 @@
 
 using namespace HALSITL;
 
-static EEPROMStorage sitlEEPROMStorage;
+static Storage sitlStorage;
 static SITL_State sitlState;
 static Scheduler sitlScheduler(&sitlState);
 static RCInput  sitlRCInput(&sitlState);
@@ -35,6 +35,7 @@ static GPIO sitlGPIO(&sitlState);
 static Empty::I2CDeviceManager i2c_mgr_instance;
 static Empty::SPIDeviceManager emptySPI;
 static Empty::OpticalFlow emptyOpticalFlow;
+static Empty::Flash emptyFlash;
 
 static UARTDriver sitlUart0Driver(0, &sitlState);
 static UARTDriver sitlUart1Driver(1, &sitlState);
@@ -58,7 +59,7 @@ HAL_SITL::HAL_SITL() :
         &i2c_mgr_instance,
         &emptySPI,          /* spi */
         &sitlAnalogIn,      /* analogin */
-        &sitlEEPROMStorage, /* storage */
+        &sitlStorage, /* storage */
         &sitlUart0Driver,   /* console */
         &sitlGPIO,          /* gpio */
         &sitlRCInput,       /* rcinput */
@@ -66,6 +67,7 @@ HAL_SITL::HAL_SITL() :
         &sitlScheduler,     /* scheduler */
         &utilInstance,      /* util */
         &emptyOpticalFlow, /* onboard optical flow */
+        &emptyFlash, /* flash driver */
         nullptr),           /* CAN */
     _sitl_state(&sitlState)
 {}

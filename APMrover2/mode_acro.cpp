@@ -15,7 +15,7 @@ void ModeAcro::update()
         float desired_speed;
         // convert pilot stick input into desired steering and speed
         get_pilot_desired_steering_and_speed(desired_steering, desired_speed);
-        calc_throttle(desired_speed, false, true);
+        calc_throttle(desired_speed, true);
     }
 
     float steering_out;
@@ -28,7 +28,7 @@ void ModeAcro::update()
     if (g2.motors.has_sail() && rover.sailboat_tacking()) {
         // call heading controller during tacking
         steering_out = attitude_control.get_steering_out_heading(rover.sailboat_get_tack_heading_rad(),
-                                                                 g2.pivot_turn_rate,
+                                                                 g2.wp_nav.get_pivot_rate(),
                                                                  g2.motors.limit.steer_left,
                                                                  g2.motors.limit.steer_right,
                                                                  rover.G_Dt);
@@ -43,7 +43,7 @@ void ModeAcro::update()
                                                               rover.G_Dt);
     }
 
-    g2.motors.set_steering(steering_out * 4500.0f);
+    set_steering(steering_out * 4500.0f);
 }
 
 bool ModeAcro::requires_velocity() const

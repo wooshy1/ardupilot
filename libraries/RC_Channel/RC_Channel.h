@@ -16,18 +16,6 @@ public:
     // Constructor
     RC_Channel(void);
 
-    // used to get min/max/trim limit value based on _reverse
-    enum LimitValue {
-        RC_CHANNEL_LIMIT_TRIM,
-        RC_CHANNEL_LIMIT_MIN,
-        RC_CHANNEL_LIMIT_MAX
-    };
-
-    enum InputIgnore {
-        RC_IGNORE_RECEIVER  = (1 << 0), // RC reciever modules
-        RC_IGNORE_OVERRIDES = (1 << 1), // MAVLink overrides
-    };
-
     enum ChannelType {
         RC_CHANNEL_TYPE_ANGLE = 0,
         RC_CHANNEL_TYPE_RANGE = 1,
@@ -83,8 +71,10 @@ public:
     void       set_override(const uint16_t v, const uint32_t timestamp_us);
     bool       has_override() const;
 
+    int16_t    stick_mixing(const int16_t servo_in);
+
     // get control input with zero deadzone
-    int16_t     get_control_in_zero_dz(void) const;
+    int16_t    get_control_in_zero_dz(void) const;
 
     int16_t    get_radio_min() const {return radio_min.get();}
     void       set_radio_min(int16_t val) { radio_min = val;}
@@ -110,7 +100,7 @@ public:
     void read_aux();
 
     // Aux Switch enumeration
-    enum aux_func {
+    enum class AUX_FUNC {
         DO_NOTHING =           0, // aux switch disabled
         FLIP =                 2, // flip
         SIMPLE_MODE =          3, // change to simple mode
@@ -173,21 +163,27 @@ public:
         SAILBOAT_TACK =       63, // rover sailboat tack
         REVERSE_THROTTLE =    64, // reverse throttle input
         GPS_DISABLE  =        65, // disable GPS for testing
+        RELAY5 =              66, // Relay5 pin on/off
+        RELAY6 =              67, // Relay6 pin on/off
+        STABILIZE =           68, // stabilize mode
+        POSHOLD   =           69, // poshold mode
+        ALTHOLD   =           70, // althold mode
+        FLOWHOLD  =           71, // flowhold mode
+        CIRCLE    =           72, // circle mode
+        DRIFT     =           73  // drift mode
         // if you add something here, make sure to update the documentation of the parameter in RC_Channel.cpp!
         // also, if you add an option >255, you will need to fix duplicate_options_exist
     };
-    typedef enum aux_func aux_func_t;
+    typedef enum AUX_FUNC aux_func_t;
 
 protected:
 
-    // auxillary switch handling:
-    enum aux_switch_pos {
+    // auxillary switch handling (n.b.: we store this as 2-bits!):
+    enum aux_switch_pos_t : uint8_t {
         LOW,       // indicates auxiliary switch is in the low position (pwm <1200)
         MIDDLE,    // indicates auxiliary switch is in the middle position (pwm >1200, <1800)
         HIGH       // indicates auxiliary switch is in the high position (pwm >1800)
     };
-
-    typedef enum aux_switch_pos aux_switch_pos_t;
 
     virtual void init_aux_function(aux_func_t ch_option, aux_switch_pos_t);
     virtual void do_aux_function(aux_func_t ch_option, aux_switch_pos_t);
@@ -205,6 +201,7 @@ protected:
     virtual void mode_switch_changed(modeswitch_pos_t new_pos) {
         // no action by default (e.g. Tracker, Sub, who do their own thing)
     };
+
 
 private:
 
@@ -238,7 +235,7 @@ private:
     static const uint16_t AUX_PWM_TRIGGER_HIGH = 1800;
     // pwm value below which the option will be disabled:
     static const uint16_t AUX_PWM_TRIGGER_LOW = 1200;
-    aux_switch_pos_t read_3pos_switch() const;
+    bool read_3pos_switch(aux_switch_pos_t &ret) const WARN_IF_UNUSED;
 
     //Documentation of Aux Switch Flags:
     // 0 is low or false, 1 is center or true, 2 is high
@@ -315,7 +312,7 @@ public:
     static int16_t get_receiver_rssi(void);                            // returns [0, 255] for receiver RSSI (0 is no link) if present, otherwise -1
     bool read_input(void);                                             // returns true if new input has been read in
     static void clear_overrides(void);                                 // clears any active overrides
-    static bool receiver_bind(const int dsmMode);                      // puts the reciever in bind mode if present, returns true if success
+    static bool receiver_bind(const int dsmMode);                      // puts the receiver in bind mode if present, returns true if success
     static void set_override(const uint8_t chan, const int16_t value, const uint32_t timestamp_ms = 0); // set a channels override value
     static bool has_active_overrides(void);                            // returns true if there are overrides applied that are valid
 
@@ -340,14 +337,42 @@ public:
         }
     }
 
+    // should we ignore RC failsafe bits from receivers?
+    bool ignore_rc_failsafe(void) const {
+        return get_singleton() != nullptr && (_options & uint32_t(Option::IGNORE_FAILSAFE));
+    }
+
+    bool ignore_overrides() const {
+        return _options & uint32_t(Option::IGNORE_OVERRIDES);
+    }
+
+    bool ignore_receiver() const {
+        return _options & uint32_t(Option::IGNORE_RECEIVER);
+    }
+
+    float override_timeout_ms() const {
+        return _override_timeout.get() * 1e3f;
+    }
+
+protected:
+
+    enum class Option {
+        IGNORE_RECEIVER  = (1 << 0), // RC receiver modules
+        IGNORE_OVERRIDES = (1 << 1), // MAVLink overrides
+        IGNORE_FAILSAFE  = (1 << 2), // ignore RC failsafe bits
+    };
+
+    void new_override_received() {
+        has_new_overrides = true;
+    }
+
 private:
     static RC_Channels *_singleton;
     // this static arrangement is to avoid static pointers in AP_Param tables
     static RC_Channel *channels;
 
-    static bool has_new_overrides;
-    static AP_Float *override_timeout;
-    static AP_Int32 *options;
+    bool has_new_overrides;
+
     AP_Float _override_timeout;
     AP_Int32  _options;
 

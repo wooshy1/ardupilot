@@ -32,7 +32,7 @@
 #include <AP_BoardConfig/AP_BoardConfig_CAN.h>
 
 #include <AP_Common/AP_Common.h>
-#include <DataFlash/DataFlash.h>
+#include <AP_Logger/AP_Logger.h>
 
 #if HAL_OS_POSIX_IO
 #include <unistd.h>
@@ -79,7 +79,34 @@ class AP_UAVCAN_FileEventTracer : public uavcan::dynamic_node_id_server::IEventT
 protected:
     virtual void onEvent(uavcan::dynamic_node_id_server::TraceCode code, uavcan::int64_t argument)
     {
-        DataFlash_Class::instance()->Log_Write("UCEV", "TimeUS,code,arg", "s--", "F--", "Qhq", AP_HAL::micros64(), code, argument);
+        AP::logger().Write("UCEV", "TimeUS,code,arg", "s--", "F--", "Qhq", AP_HAL::micros64(), code, argument);
+    }
+};
+
+
+class AP_UAVCAN_RestartRequestHandler : public uavcan::IRestartRequestHandler {
+public:
+    bool handleRestartRequest(uavcan::NodeID request_source) override {
+        // swiped from reboot handling in GCS_Common.cpp
+        if (hal.util->get_soft_armed()) {
+            // refuse reboot when armed
+            return false;
+        }
+        AP_Notify *notify = AP_Notify::get_singleton();
+        if (notify) {
+            AP_Notify::flags.firmware_update = 1;
+            notify->update();
+        }
+        // force safety on
+        hal.rcout->force_safety_on();
+        hal.rcout->force_safety_no_wait();
+
+        // flush pending parameter writes
+        AP_Param::flush();
+
+        hal.scheduler->delay(200);
+        hal.scheduler->reboot(false);
+        return true;
     }
 };
 
@@ -271,6 +298,14 @@ bool AP_UAVCAN_Servers::init(uavcan::Node<0> &node)
         }
     }
 
+    if (_restart_request_handler == nullptr) {
+        _restart_request_handler = new AP_UAVCAN_RestartRequestHandler();
+        if (_restart_request_handler == nullptr) {
+            goto failed;
+        }
+    }
+    node.setRestartRequestHandler(_restart_request_handler);
+
     //Start Dynamic Node Server
     ret = _server_instance->init(node.getHardwareVersion().unique_id);
     if (ret < 0) {
@@ -281,6 +316,7 @@ bool AP_UAVCAN_Servers::init(uavcan::Node<0> &node)
     return true;
 
 failed:
+    delete _restart_request_handler;
     delete _storage_backend;
     delete _tracer;
     delete _server_instance;

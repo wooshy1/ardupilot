@@ -41,6 +41,7 @@
 #include <AP_BattMonitor/AP_BattMonitor_UAVCAN.h>
 #include <AP_Compass/AP_Compass_UAVCAN.h>
 #include <AP_Airspeed/AP_Airspeed_UAVCAN.h>
+#include <SRV_Channel/SRV_Channel.h>
 
 #define LED_DELAY_US 50000
 
@@ -97,8 +98,7 @@ static uavcan::Publisher<uavcan::equipment::esc::RawCommand>* esc_raw[MAX_NUMBER
 static uavcan::Publisher<uavcan::equipment::indication::LightsCommand>* rgb_led[MAX_NUMBER_OF_CAN_DRIVERS];
 
 AP_UAVCAN::AP_UAVCAN() :
-    _node_allocator(
-        UAVCAN_NODE_POOL_SIZE, UAVCAN_NODE_POOL_SIZE)
+    _node_allocator()
 {
     AP_Param::setup_object_defaults(this, var_info);
 
@@ -123,7 +123,7 @@ AP_UAVCAN *AP_UAVCAN::get_uavcan(uint8_t driver_index)
     return static_cast<AP_UAVCAN*>(AP::can().get_driver(driver_index));
 }
 
-void AP_UAVCAN::init(uint8_t driver_index)
+void AP_UAVCAN::init(uint8_t driver_index, bool enable_filters)
 {
     if (_initialized) {
         debug_uavcan(2, "UAVCAN: init called more than once\n\r");
@@ -219,8 +219,9 @@ void AP_UAVCAN::init(uint8_t driver_index)
     rgb_led[driver_index]->setPriority(uavcan::TransferPriority::OneHigherThanLowest);
 
     _led_conf.devices_count = 0;
-
-    configureCanAcceptanceFilters(*_node);
+    if (enable_filters) {
+        configureCanAcceptanceFilters(*_node);
+    }
 
     /*
      * Informing other nodes that we're ready to work.
