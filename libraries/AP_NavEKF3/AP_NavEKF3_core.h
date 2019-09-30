@@ -19,7 +19,7 @@
  */
 #pragma once
 
-#pragma GCC optimize("O3")
+#pragma GCC optimize("O2")
 
 #define EK3_DISABLE_INTERRUPTS 0
 
@@ -28,6 +28,7 @@
 #include "AP_NavEKF3.h"
 #include <AP_Math/vectorN.h>
 #include <AP_NavEKF3/AP_NavEKF3_Buffer.h>
+#include <AP_InertialSensor/AP_InertialSensor.h>
 
 // GPS pre-flight check bit locations
 #define MASK_GPS_NSATS      (1<<0)
@@ -66,10 +67,10 @@ class NavEKF3_core
 {
 public:
     // Constructor
-    NavEKF3_core(void);
+    NavEKF3_core(NavEKF3 *_frontend);
 
     // setup this core backend
-    bool setup_core(NavEKF3 *_frontend, uint8_t _imu_index, uint8_t _core_index);
+    bool setup_core(uint8_t _imu_index, uint8_t _core_index);
     
     // Initialise the states from accelerometer and magnetometer data (if present)
     // This method can only be used when the vehicle is static
@@ -257,6 +258,20 @@ public:
     bool getRangeBeaconDebug(uint8_t &ID, float &rng, float &innov, float &innovVar, float &testRatio, Vector3f &beaconPosNED,
                              float &offsetHigh, float &offsetLow, Vector3f &posNED);
 
+    /*
+     * Writes the measurement from a yaw angle sensor
+     *
+     * yawAngle: Yaw angle of the vehicle relative to true north in radians where a positive angle is
+     * produced by a RH rotation about the Z body axis. The Yaw rotation is the first rotation in a
+     * 321 (ZYX) or a 312 (ZXY) rotation sequence as specified by the 'type' argument.
+     * yawAngleErr is the 1SD accuracy of the yaw angle measurement in radians.
+     * timeStamp_ms: System time in msec when the yaw measurement was taken. This time stamp must include
+     * all measurement lag and transmission delays.
+     * type: An integer specifying Euler rotation order used to define the yaw angle.
+     * type = 1 specifies a 312 (ZXY) rotation order, type = 2 specifies a 321 (ZYX) rotation order.
+    */
+    void writeEulerYawAngle(float yawAngle, float yawAngleErr, uint32_t timeStamp_ms, uint8_t type);
+
     // called by vehicle code to specify that a takeoff is happening
     // causes the EKF to compensate for expected barometer errors due to ground effect
     void setTakeoffExpected(bool val);
@@ -344,16 +359,22 @@ public:
     // publish output observer angular, velocity and position tracking error
     void getOutputTrackingError(Vector3f &error) const;
 
-    // get the IMU index
-    uint8_t getIMUIndex(void) const { return imu_index; }
+    // get the IMU index. For now we return the gyro index, as that is most
+    // critical for use by other subsystems.
+    uint8_t getIMUIndex(void) const { return gyro_index_active; }
 
     // get timing statistics structure
     void getTimingStatistics(struct ekf_timing &timing);
-    
+
+    // return size of core_common for use in frontend allocation
+    static uint32_t get_core_common_size(void) { return sizeof(core_common); }
+
 private:
     // Reference to the global EKF frontend for parameters
     NavEKF3 *frontend;
-    uint8_t imu_index;
+    uint8_t imu_index; // preferred IMU index
+    uint8_t gyro_index_active; // active gyro index (in case preferred fails)
+    uint8_t accel_index_active; // active accel index (in case preferred fails)
     uint8_t core_index;
     uint8_t imu_buffer_length;
     uint8_t obs_buffer_length;
@@ -443,6 +464,8 @@ private:
         float       delAngDT;       // time interval over which delAng has been measured (sec)
         float       delVelDT;       // time interval over which delVelDT has been measured (sec)
         uint32_t    time_ms;        // measurement timestamp (msec)
+        uint8_t     gyro_index;
+        uint8_t     accel_index;
     };
 
     struct gps_elements {
@@ -505,6 +528,35 @@ private:
         float           delTime;    // time interval that the measurement was accumulated over (sec)
         uint32_t        time_ms;    // measurement timestamp (msec)
     };
+        
+    struct yaw_elements {
+        float       yawAng;         // yaw angle measurement (rad)
+        float       yawAngErr;      // yaw angle 1SD measurement accuracy (rad)
+        uint32_t    time_ms;        // measurement timestamp (msec)
+        uint8_t     type;           // type specifiying Euler rotation order used, 1 = 312 (ZXY), 2 = 321 (ZYX)
+    };
+
+    /*
+      common intermediate variables used by all cores. These save a
+      lot memory by avoiding allocating these arrays on every core
+      Having these as stack variables would save even more memory, but
+      would give us very high stack usage in some functions, which
+      poses a risk of stack overflow until we have infrastructure in
+      place to calculate maximum stack usage using static analysis.
+     */
+    struct core_common {
+        Vector28 Kfusion;
+        Matrix24 KH;
+        Matrix24 KHP;
+        Matrix24 nextP;
+    } *common;
+    
+    // bias estimates for the IMUs that are enabled but not being used
+    // by this core.
+    struct {
+        Vector3f gyro_bias;
+        Vector3f accel_bias;
+    } inactiveBias[INS_MAX_INSTANCES];
 
     // update the navigation filter status
     void updateFilterStatus(void);
@@ -612,11 +664,14 @@ private:
     bool readDeltaAngle(uint8_t ins_index, Vector3f &dAng);
 
     // helper functions for correcting IMU data
-    void correctDeltaAngle(Vector3f &delAng, float delAngDT);
-    void correctDeltaVelocity(Vector3f &delVel, float delVelDT);
+    void correctDeltaAngle(Vector3f &delAng, float delAngDT, uint8_t gyro_index);
+    void correctDeltaVelocity(Vector3f &delVel, float delVelDT, uint8_t accel_index);
 
     // update IMU delta angle and delta velocity measurements
     void readIMUData();
+
+    // update estimate of inactive bias states
+    void learnInactiveBiases();
 
     // check for new valid GPS data and update stored measurement if available
     void readGpsData();
@@ -652,6 +707,10 @@ private:
     void realignYawGPS();
 
     // initialise the earth magnetic field states using declination and current attitude and magnetometer measurements
+
+    // align the yaw angle for the quaternion states using the external yaw sensor
+    void alignYawAngle();
+
     // and return attitude quaternion
     Quaternion calcQuatAndFieldStates(float roll, float pitch);
 
@@ -727,7 +786,7 @@ private:
     void controlMagYawReset();
 
     // Set the NED origin to be used until the next filter reset
-    void setOrigin();
+    void setOrigin(const Location &loc);
 
     // determine if a takeoff is expected so that we can compensate for expected barometer errors due to ground effect
     bool getTakeoffExpected();
@@ -735,8 +794,8 @@ private:
     // determine if a touchdown is expected so that we can compensate for expected barometer errors due to ground effect
     bool getTouchdownExpected();
 
-    // Assess GPS data quality and return true if good enough to align the EKF
-    bool calcGpsGoodToAlign(void);
+    // Assess GPS data quality and set gpsGoodToAlign
+    void calcGpsGoodToAlign(void);
 
     // set the class variable true if the delta angle bias variances are sufficiently small
     void checkGyroCalStatus(void);
@@ -755,7 +814,7 @@ private:
     void alignMagStateDeclination();
 
     // Fuse compass measurements using a simple declination observation (doesn't require magnetic field states)
-    void fuseEulerYaw();
+    void fuseEulerYaw(bool usePredictedYaw, bool useExternalYawSensor);
 
     // Fuse declination angle to keep earth field declination from changing when we don't have earth relative observations.
     // Input is 1-sigma uncertainty in published declination
@@ -814,9 +873,9 @@ private:
     bool badIMUdata;                // boolean true if the bad IMU data is detected
 
     float gpsNoiseScaler;           // Used to scale the  GPS measurement noise and consistency gates to compensate for operation with small satellite counts
-    Vector28 Kfusion;               // Kalman gain vector
-    Matrix24 KH;                    // intermediate result used for covariance updates
-    Matrix24 KHP;                   // intermediate result used for covariance updates
+    Vector28 &Kfusion;              // Kalman gain vector
+    Matrix24 &KH;                   // intermediate result used for covariance updates
+    Matrix24 &KHP;                  // intermediate result used for covariance updates
     Matrix24 P;                     // covariance matrix
     imu_ring_buffer_t<imu_elements> storedIMU;      // IMU data buffer
     obs_ring_buffer_t<gps_elements> storedGPS;      // GPS data buffer
@@ -870,7 +929,7 @@ private:
     bool allMagSensorsFailed;       // true if all magnetometer sensors have timed out on this flight and we are no longer using magnetometer data
     uint32_t lastSynthYawTime_ms;   // time stamp when synthetic yaw measurement was last fused to maintain covariance health (msec)
     uint32_t ekfStartTime_ms;       // time the EKF was started (msec)
-    Matrix24 nextP;                 // Predicted covariance matrix before addition of process noise to diagonals
+    Matrix24 &nextP;                // Predicted covariance matrix before addition of process noise to diagonals
     Vector2f lastKnownPositionNE;   // last known position
     uint32_t lastDecayTime_ms;      // time of last decay of GPS position offset
     float velTestRatio;             // sum of squares of GPS velocity innovation divided by fail threshold
@@ -889,6 +948,7 @@ private:
     float gpsPosAccuracy;           // estimated position accuracy in m returned by the GPS receiver
     float gpsHgtAccuracy;           // estimated height accuracy in m returned by the GPS receiver
     uint32_t lastGpsVelFail_ms;     // time of last GPS vertical velocity consistency check fail
+    uint32_t lastGpsVelPass_ms;     // time of last GPS vertical velocity consistency check pass
     uint32_t lastGpsAidBadTime_ms;  // time in msec gps aiding was last detected to be bad
     float posDownAtTakeoff;         // flight vehicle vertical position sampled at transition from on-ground to in-air and used as a reference (m)
     bool useGpsVertVel;             // true if GPS vertical velocity should be used
@@ -1073,8 +1133,8 @@ private:
     vel_odm_elements bodyOdmDataDelayed;  // Body  frame odometry data at the fusion time horizon
     uint32_t lastbodyVelPassTime_ms;    // time stamp when the body velocity measurement last passed innovation consistency checks (msec)
     Vector3 bodyVelTestRatio;           // Innovation test ratios for body velocity XYZ measurements
-    Vector3 varInnovBodyVel;            // Body velocity XYZ innovation variances (rad/sec)^2
-    Vector3 innovBodyVel;               // Body velocity XYZ innovations (rad/sec)
+    Vector3 varInnovBodyVel;            // Body velocity XYZ innovation variances (m/sec)^2
+    Vector3 innovBodyVel;               // Body velocity XYZ innovations (m/sec)
     uint32_t prevBodyVelFuseTime_ms;    // previous time all body velocity measurement components passed their innovation consistency checks (msec)
     uint32_t bodyOdmMeasTime_ms;        // time body velocity measurements were accepted for input to the data buffer (msec)
     bool bodyVelFusionDelayed;          // true when body frame velocity fusion has been delayed
@@ -1087,6 +1147,11 @@ private:
     wheel_odm_elements wheelOdmDataNew;       // Body frame odometry data at the current time horizon
     wheel_odm_elements wheelOdmDataDelayed;   // Body  frame odometry data at the fusion time horizon
 
+    // yaw sensor fusion
+    uint32_t yawMeasTime_ms;
+    obs_ring_buffer_t<yaw_elements> storedYawAng;
+    yaw_elements yawAngDataNew;
+    yaw_elements yawAngDataDelayed;
 
     // Range Beacon Sensor Fusion
     obs_ring_buffer_t<rng_bcn_elements> storedRangeBeacon; // Beacon range buffer

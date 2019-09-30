@@ -55,8 +55,7 @@ void Plane::init_ardupilot()
 
     // initialise serial ports
     serial_manager.init();
-    gcs().chan(0).setup_uart(serial_manager, AP_SerialManager::SerialProtocol_MAVLink, 0);
-
+    gcs().setup_console();
 
     // Register mavlink_delay_cb, which will run anytime you have
     // more than 5ms remaining in your call to hal.scheduler->delay
@@ -96,7 +95,7 @@ void Plane::init_ardupilot()
     rpm_sensor.init();
 
     // setup telem slots with serial ports
-    gcs().setup_uarts(serial_manager);
+    gcs().setup_uarts();
 
 #if OSD_ENABLED == ENABLED
     osd.init();
@@ -130,7 +129,7 @@ void Plane::init_ardupilot()
 
 #if MOUNT == ENABLED
     // initialise camera mount
-    camera_mount.init(serial_manager);
+    camera_mount.init();
 #endif
 
 #if LANDING_GEAR_ENABLED == ENABLED
@@ -184,6 +183,10 @@ void Plane::init_ardupilot()
 
     // disable safety if requested
     BoardConfig.init_safety();
+
+#if AP_PARAM_KEY_DUMP
+    AP_Param::show_all(hal.console, true);
+#endif
 }
 
 //********************************************************************************
@@ -301,6 +304,7 @@ bool Plane::set_mode(Mode &new_mode, const mode_reason_t reason)
     // log and notify mode change
     logger.Write_Mode(control_mode->mode_number(), control_mode_reason);
     notify_mode(*control_mode);
+    gcs().send_message(MSG_HEARTBEAT);
 
     return true;
 }
@@ -338,8 +342,9 @@ void Plane::check_long_failsafe()
                    (tnow - failsafe.last_heartbeat_ms) > g.fs_timeout_long*1000) {
             failsafe_long_on_event(FAILSAFE_GCS, MODE_REASON_GCS_FAILSAFE);
         } else if (g.gcs_heartbeat_fs_enabled == GCS_FAILSAFE_HB_RSSI && 
-                   gcs().chan(0).last_radio_status_remrssi_ms != 0 &&
-                   (tnow - gcs().chan(0).last_radio_status_remrssi_ms) > g.fs_timeout_long*1000) {
+                   gcs().chan(0) != nullptr &&
+                   gcs().chan(0)->last_radio_status_remrssi_ms != 0 &&
+                   (tnow - gcs().chan(0)->last_radio_status_remrssi_ms) > g.fs_timeout_long*1000) {
             failsafe_long_on_event(FAILSAFE_GCS, MODE_REASON_GCS_FAILSAFE);
         }
     } else {
@@ -453,61 +458,4 @@ int8_t Plane::throttle_percentage(void)
         return constrain_int16(throttle, 0, 100);
     }
     return constrain_int16(throttle, -100, 100);
-}
-
-/*
-  update AHRS soft arm state and log as needed
- */
-void Plane::change_arm_state(void)
-{
-    Log_Arm_Disarm();
-    update_soft_armed();
-    quadplane.set_armed(hal.util->get_soft_armed());
-}
-
-/*
-  arm motors
- */
-bool Plane::arm_motors(const AP_Arming::Method method, const bool do_arming_checks)
-{
-    if (!arming.arm(method, do_arming_checks)) {
-        return false;
-    }
-
-    change_arm_state();
-    return true;
-}
-
-/*
-  disarm motors
- */
-bool Plane::disarm_motors(void)
-{
-    if (!arming.disarm()) {
-        return false;
-    }
-    if (control_mode != &mode_auto) {
-        // reset the mission on disarm if we are not in auto
-        mission.reset();
-    }
-
-    // suppress the throttle in auto-throttle modes
-    throttle_suppressed = auto_throttle_mode;
-    
-    //only log if disarming was successful
-    change_arm_state();
-
-    // reload target airspeed which could have been modified by a mission
-    plane.aparm.airspeed_cruise_cm.load();
-    
-#if QAUTOTUNE_ENABLED
-    //save qautotune gains if enabled and success
-    if (control_mode == &mode_qautotune) {
-        quadplane.qautotune.save_tuning_gains();
-    } else {
-        quadplane.qautotune.reset();
-    }
-#endif
-
-    return true;
 }

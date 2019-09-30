@@ -178,7 +178,7 @@ private:
     Compass compass;
     AP_InertialSensor ins;
 
-    RangeFinder rangefinder{serial_manager};
+    RangeFinder rangefinder;
     struct {
         bool enabled:1;
         bool alt_healthy:1; // true if we can trust the altitude from the rangefinder
@@ -324,8 +324,8 @@ private:
     uint32_t loiter_time;                    // How long have we been loitering - The start time in millis
 
     // Delay the next navigation command
-    int32_t nav_delay_time_max;  // used for delaying the navigation commands
-    uint32_t nav_delay_time_start;
+    uint32_t nav_delay_time_max_ms;  // used for delaying the navigation commands
+    uint32_t nav_delay_time_start_ms;
 
     // Battery Sensors
     AP_BattMonitor battery{MASK_LOG_CURRENT,
@@ -402,11 +402,11 @@ private:
     AP_Relay relay;
 
     // handle repeated servo and relay events
-    AP_ServoRelayEvents ServoRelayEvents{relay};
+    AP_ServoRelayEvents ServoRelayEvents;
 
     // Camera
 #if CAMERA == ENABLED
-    AP_Camera camera{&relay, MASK_LOG_CAMERA, current_loc, ahrs};
+    AP_Camera camera{MASK_LOG_CAMERA, current_loc};
 #endif
 
     // Camera/Antenna mount tracking and stabilisation stuff
@@ -421,7 +421,7 @@ private:
 #endif
 
 #if AVOIDANCE_ENABLED == ENABLED
-    AC_Avoid avoid{ahrs, fence, g2.proximity, &g2.beacon};
+    AC_Avoid avoid;
 #endif
 
     // Rally library
@@ -454,7 +454,6 @@ private:
     static const AP_Param::Info var_info[];
     static const struct LogStructure log_structure[];
 
-    void init_compass_location();
     void fast_loop();
     void fifty_hz_loop();
     void update_batt_compass(void);
@@ -476,7 +475,6 @@ private:
     float get_surface_tracking_climb_rate(int16_t target_rate, float current_alt_target, float dt);
     void update_poscon_alt_max();
     void rotate_body_frame_to_NE(float &x, float &y);
-    void gcs_send_heartbeat(void);
     void send_heartbeat(mavlink_channel_t chan);
 #if RPM_ENABLED == ENABLED
     void rpm_update();
@@ -560,6 +558,9 @@ private:
     bool poshold_init(void);
     void poshold_run();
 
+    bool motordetect_init();
+    void motordetect_run();
+
     bool stabilize_init(void);
     void stabilize_run();
     bool manual_init(void);
@@ -588,8 +589,6 @@ private:
     void update_surface_and_bottom_detector();
     void set_surfaced(bool at_surface);
     void set_bottomed(bool at_bottom);
-    bool init_arm_motors(AP_Arming::Method method);
-    void init_disarm_motors();
     void motors_output();
     Vector3f pv_location_to_vector(const Location& loc);
     float pv_alt_above_origin(float alt_above_home_cm);

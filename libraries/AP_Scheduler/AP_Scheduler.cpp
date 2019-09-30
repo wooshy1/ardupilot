@@ -26,7 +26,9 @@
 #include <AP_Logger/AP_Logger.h>
 #include <AP_InertialSensor/AP_InertialSensor.h>
 #include <AP_InternalError/AP_InternalError.h>
-
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#include <SITL/SITL.h>
+#endif
 #include <stdio.h>
 
 #if APM_BUILD_TYPE(APM_BUILD_ArduCopter) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
@@ -38,8 +40,6 @@
 #define debug(level, fmt, args...)   do { if ((level) <= _debug.get()) { hal.console->printf(fmt, ##args); }} while (0)
 
 extern const AP_HAL::HAL& hal;
-
-int8_t AP_Scheduler::current_task = -1;
 
 const AP_Param::GroupInfo AP_Scheduler::var_info[] = {
     // @Param: DEBUG
@@ -133,8 +133,8 @@ void AP_Scheduler::run(uint32_t time_available)
     }
     
     for (uint8_t i=0; i<_num_tasks; i++) {
-        uint16_t dt = _tick_counter - _last_run[i];
-        uint16_t interval_ticks = _loop_rate_hz / _tasks[i].rate_hz;
+        uint32_t dt = _tick_counter - _last_run[i];
+        uint32_t interval_ticks = _loop_rate_hz / _tasks[i].rate_hz;
         if (interval_ticks < 1) {
             interval_ticks = 1;
         }
@@ -155,6 +155,12 @@ void AP_Scheduler::run(uint32_t time_available)
                   (unsigned)_task_time_allowed);
         }
 
+        if (dt >= interval_ticks*max_task_slowdown) {
+            // we are going beyond the maximum slowdown factor for a
+            // task. This will trigger increasing the time budget
+            task_not_achieved++;
+        }
+
         if (_task_time_allowed > time_available) {
             // not enough time to run this task.  Continue loop -
             // maybe another task will fit into time remaining
@@ -163,7 +169,7 @@ void AP_Scheduler::run(uint32_t time_available)
 
         // run it
         _task_time_started = now;
-        current_task = i;
+        hal.util->persistent_data.scheduler_task = i;
         if (_debug > 1 && _perf_counters && _perf_counters[i]) {
             hal.util->perf_begin(_perf_counters[i]);
         }
@@ -171,7 +177,7 @@ void AP_Scheduler::run(uint32_t time_available)
         if (_debug > 1 && _perf_counters && _perf_counters[i]) {
             hal.util->perf_end(_perf_counters[i]);
         }
-        current_task = -1;
+        hal.util->persistent_data.scheduler_task = -1;
 
         // record the tick counter when we ran. This drives
         // when we next run the event
@@ -234,7 +240,9 @@ float AP_Scheduler::load_average()
 void AP_Scheduler::loop()
 {
     // wait for an INS sample
+    hal.util->persistent_data.scheduler_task = -3;
     AP::ins().wait_for_sample();
+    hal.util->persistent_data.scheduler_task = -1;
 
     const uint32_t sample_time_us = AP_HAL::micros();
     
@@ -248,8 +256,21 @@ void AP_Scheduler::loop()
     // Execute the fast loop
     // ---------------------
     if (_fastloop_fn) {
+        hal.util->persistent_data.scheduler_task = -2;
         _fastloop_fn();
+        hal.util->persistent_data.scheduler_task = -1;
     }
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    {
+        /*
+          for testing low CPU conditions we can add an optional delay in SITL
+        */
+        auto *sitl = AP::sitl();
+        uint32_t loop_delay_us = sitl->loop_delay.get();
+        hal.scheduler->delay_microseconds(loop_delay_us);
+    }
+#endif
 
     // tell the scheduler one tick has passed
     tick();
@@ -260,13 +281,40 @@ void AP_Scheduler::loop()
     // the first call to the scheduler they won't run on a later
     // call until scheduler.tick() is called again
     const uint32_t loop_us = get_loop_period_us();
-    const uint32_t time_available = (sample_time_us + loop_us) - AP_HAL::micros();
-    run(time_available > loop_us ? 0u : time_available);
+    uint32_t now = AP_HAL::micros();
+    uint32_t time_available = 0;
+    if (now - sample_time_us < loop_us) {
+        // get remaining time available for this loop
+        time_available = loop_us - (now - sample_time_us);
+    }
+
+    // add in extra loop time determined by not achieving scheduler tasks
+    time_available += extra_loop_us;
+
+    // run the tasks
+    run(time_available);
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     // move result of AP_HAL::micros() forward:
     hal.scheduler->delay_microseconds(1);
 #endif
+
+    if (task_not_achieved > 0) {
+        // add some extra time to the budget
+        extra_loop_us = MIN(extra_loop_us+100U, 5000U);
+        task_not_achieved = 0;
+        task_all_achieved = 0;
+    } else if (extra_loop_us > 0) {
+        task_all_achieved++;
+        if (task_all_achieved > 50) {
+            // we have gone through 50 loops without a task taking too
+            // long. CPU pressure has eased, so drop the extra time we're
+            // giving each loop
+            task_all_achieved = 0;
+            // we are achieving all tasks, slowly lower the extra loop time
+            extra_loop_us = MAX(0U, extra_loop_us-50U);
+        }
+    }
 
     // check loop time
     perf_info.check_loop_time(sample_time_us - _loop_timer_start_us);
@@ -290,6 +338,7 @@ void AP_Scheduler::update_logging()
 // Write a performance monitoring packet
 void AP_Scheduler::Log_Write_Performance()
 {
+    const AP_HAL::Util::PersistentData &pd = hal.util->persistent_data;
     struct log_Performance pkt = {
         LOG_PACKET_HEADER_INIT(LOG_PERFORMANCE_MSG),
         time_us          : AP_HAL::micros64(),
@@ -298,7 +347,12 @@ void AP_Scheduler::Log_Write_Performance()
         max_time         : perf_info.get_max_time(),
         mem_avail        : hal.util->available_memory(),
         load             : (uint16_t)(load_average() * 1000),
-        internal_errors  : AP::internalerror().errors()
+        internal_errors  : AP::internalerror().errors(),
+        internal_error_count : AP::internalerror().count(),
+        spi_count        : pd.spi_count,
+        i2c_count        : pd.i2c_count,
+        i2c_isr_count    : pd.i2c_isr_count,
+        extra_loop_us    : extra_loop_us,
     };
     AP::logger().WriteCriticalBlock(&pkt, sizeof(pkt));
 }

@@ -33,7 +33,8 @@ define STM32_PLLQ_VALUE 9
 APJ_BOARD_ID 120
 
 # with 2M flash we can afford to optimize for speed
-env OPTIMIZE -O3
+env OPTIMIZE -O2
+
 # on some boards you will need to also set the various PLL values. See
 # the defaults in common/mcuconf.h, and use the define mechanism
 # explained later in this file to override values suitable for your
@@ -110,7 +111,7 @@ I2C_ORDER I2C2 I2C1
 # 6) SERIAL5: extra UART (usually RTOS debug console)
 
 # order of UARTs (and USB)
-UART_ORDER OTG1 UART4 USART2 USART3 UART8 UART7
+UART_ORDER OTG1 UART4 USART2 USART3 UART8 UART7 OTG2
 
 # if the board has an IOMCU connected via a UART then this defines the
 # UART to talk to that MCU. Leave it out for boards with no IOMCU
@@ -395,6 +396,39 @@ SPIDEV pixartPC15     SPI4 DEVID13 ACCEL_EXT_CS MODE3  2*MHZ  2*MHZ
 #SPIDEV clock8   SPI4 DEVID5  MPU_EXT_CS   MODE0  8*MHZ 8*MHZ     # gives 5.5MHz
 #SPIDEV clock16  SPI4 DEVID5  MPU_EXT_CS   MODE0  16*MHZ 16*MHZ   # gives 10.6MHz
 
+# three IMUs, but allow for different varients. First two IMUs are
+# isolated, 3rd isn't
+IMU Invensense SPI:mpu9250_ext ROTATION_PITCH_180
+
+# the 3 rotations for the LSM9DS0 driver are for the accel, the gyro
+# and the H varient of the gyro
+IMU LSM9DS0 SPI:lsm9ds0_ext_g SPI:lsm9ds0_ext_am ROTATION_ROLL_180_YAW_270 ROTATION_ROLL_180_YAW_90 ROTATION_ROLL_180_YAW_90
+
+# 3rd non-isolated IMU
+IMU Invensense SPI:mpu9250 ROTATION_YAW_270
+
+# alternative IMU set for newer cubes
+IMU Invensense SPI:icm20602_ext ROTATION_ROLL_180_YAW_270
+IMU Invensensev2 SPI:icm20948_ext ROTATION_PITCH_180
+IMU Invensensev2 SPI:icm20948 ROTATION_YAW_270
+
+define HAL_DEFAULT_INS_FAST_SAMPLE 5
+
+# two baros
+BARO MS56XX SPI:ms5611_ext
+BARO MS56XX SPI:ms5611
+
+# two compasses. First is in the LSM303D
+COMPASS LSM303D SPI:lsm9ds0_ext_am ROTATION_YAW_270
+# 2nd compass is part of the 2nd invensense IMU
+COMPASS AK8963:probe_mpu9250 1 ROTATION_YAW_270
+
+# compass as part of ICM20948 on newer cubes
+COMPASS AK09916:probe_ICM20948 0 ROTATION_ROLL_180_YAW_90
+
+# also probe for external compasses
+define HAL_PROBE_EXTERNAL_I2C_COMPASSES
+
 # this adds a C define which sets up the ArduPilot architecture
 # define. Any line starting with 'define' is copied literally as
 # a #define in the hwdef.h header
@@ -463,4 +497,4 @@ define STORAGE_FLASH_PAGE 1
 # we can automatically update the IOMCU firmware on boot. The format
 # is "ROMFS ROMFS-filename source-filename". Paths are relative to the
 # ardupilot root
-ROMFS io_firmware.bin Tools/IO_Firmware/fmuv2_IO.bin
+ROMFS io_firmware.bin Tools/IO_Firmware/iofirmware_highpolh.bin

@@ -126,7 +126,14 @@ float Plane::relative_ground_altitude(bool use_rangefinder_if_available)
 {
    if (use_rangefinder_if_available && rangefinder_state.in_range) {
         return rangefinder_state.height_estimate;
-    }
+   }
+
+   if (use_rangefinder_if_available && quadplane.in_vtol_land_final() &&
+       rangefinder.status_orient(ROTATION_PITCH_270) == RangeFinder::RangeFinder_OutOfRangeLow) {
+       // a special case for quadplane landing when rangefinder goes
+       // below minimum. Consider our height above ground to be zero
+       return 0;
+   }
 
 #if AP_TERRAIN_AVAILABLE
     float altitude;
@@ -577,6 +584,29 @@ float Plane::rangefinder_correction(void)
 }
 
 /*
+  correct rangefinder data for terrain height difference between
+  NAV_LAND point and current location
+ */
+void Plane::rangefinder_terrain_correction(float &height)
+{
+#if AP_TERRAIN_AVAILABLE
+    if (!g.rangefinder_landing ||
+        flight_stage != AP_Vehicle::FixedWing::FLIGHT_LAND ||
+        g.terrain_follow == 0) {
+        return;
+    }
+    float terrain_amsl1, terrain_amsl2;
+    if (!terrain.height_amsl(current_loc, terrain_amsl1, false) ||
+        !terrain.height_amsl(next_WP_loc, terrain_amsl2, false)) {
+        return;
+    }
+    float correction = (terrain_amsl1 - terrain_amsl2);
+    height += correction;
+    auto_state.terrain_correction = correction;
+#endif
+}
+
+/*
   update the offset between rangefinder height and terrain height
  */
 void Plane::rangefinder_height_update(void)
@@ -591,6 +621,8 @@ void Plane::rangefinder_height_update(void)
         // correct the range for attitude (multiply by DCM.c.z, which
         // is cos(roll)*cos(pitch))
         rangefinder_state.height_estimate = distance * ahrs.get_rotation_body_to_ned().c.z;
+
+        rangefinder_terrain_correction(rangefinder_state.height_estimate);
 
         // we consider ourselves to be fully in range when we have 10
         // good samples (0.2s) that are different by 5% of the maximum

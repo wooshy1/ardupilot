@@ -382,22 +382,22 @@
 //
 
 #ifndef FLIGHT_MODE_1
- # define FLIGHT_MODE_1                  STABILIZE
+ # define FLIGHT_MODE_1                  Mode::Number::STABILIZE
 #endif
 #ifndef FLIGHT_MODE_2
- # define FLIGHT_MODE_2                  STABILIZE
+ # define FLIGHT_MODE_2                  Mode::Number::STABILIZE
 #endif
 #ifndef FLIGHT_MODE_3
- # define FLIGHT_MODE_3                  STABILIZE
+ # define FLIGHT_MODE_3                  Mode::Number::STABILIZE
 #endif
 #ifndef FLIGHT_MODE_4
- # define FLIGHT_MODE_4                  STABILIZE
+ # define FLIGHT_MODE_4                  Mode::Number::STABILIZE
 #endif
 #ifndef FLIGHT_MODE_5
- # define FLIGHT_MODE_5                  STABILIZE
+ # define FLIGHT_MODE_5                  Mode::Number::STABILIZE
 #endif
 #ifndef FLIGHT_MODE_6
- # define FLIGHT_MODE_6                  STABILIZE
+ # define FLIGHT_MODE_6                  Mode::Number::STABILIZE
 #endif
 
 
@@ -677,6 +677,10 @@
  #define AC_AVOID_ENABLED   ENABLED
 #endif
 
+#ifndef AC_OAPATHPLANNER_ENABLED
+ #define AC_OAPATHPLANNER_ENABLED   !HAL_MINIMIZE_FEATURES
+#endif
+
 #if AC_AVOID_ENABLED && !PROXIMITY_ENABLED
   #error AC_Avoidance relies on PROXIMITY_ENABLED which is disabled
 #endif
@@ -720,6 +724,10 @@
   #error Follow requires ModeGuided which is disabled
 #endif
 
+#if MODE_GUIDED_NOGPS_ENABLED && !MODE_GUIDED_ENABLED
+  #error ModeGuided-NoGPS requires ModeGuided which is disabled
+#endif
+
 //////////////////////////////////////////////////////////////////////////////
 // Developer Items
 //
@@ -747,14 +755,6 @@
 
 #ifndef STATS_ENABLED
  # define STATS_ENABLED ENABLED
-#endif
-
-#ifndef DEVO_TELEM_ENABLED
-#if HAL_MINIMIZE_FEATURES
- #define DEVO_TELEM_ENABLED DISABLED
-#else
- #define DEVO_TELEM_ENABLED ENABLED
-#endif
 #endif
 
 #ifndef OSD_ENABLED

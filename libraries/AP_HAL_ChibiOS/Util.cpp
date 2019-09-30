@@ -138,9 +138,10 @@ void Util::set_imu_temp(float current)
     uint32_t now = AP_HAL::millis();
     if (now - heater.last_update_ms < 1000) {
 #if defined(HAL_HEATER_GPIO_PIN)
-        // output as duty cycle to local pin
-        hal.gpio->write(HAL_HEATER_GPIO_PIN, heater.duty_counter < heater.output);
-        heater.duty_counter = (heater.duty_counter+1) % 100;
+        // output as duty cycle to local pin. Use a random sequence to
+        // prevent a periodic change to magnetic field
+        bool heater_on = (get_random16() < uint32_t(heater.output) * 0xFFFFU / 100U);
+        hal.gpio->write(HAL_HEATER_GPIO_PIN, heater_on);
 #endif
         return;
     }
@@ -223,19 +224,18 @@ uint64_t Util::get_hw_rtc() const
     return stm32_get_utc_usec();
 }
 
-#ifndef HAL_NO_FLASH_SUPPORT
+#if !defined(HAL_NO_FLASH_SUPPORT) && !defined(HAL_NO_ROMFS_SUPPORT)
 
 bool Util::flash_bootloader()
 {
     uint32_t fw_size;
     const char *fw_name = "bootloader.bin";
 
-    hal.scheduler->expect_delay_ms(11000);
+    EXPECT_DELAY_MS(11000);
 
     uint8_t *fw = AP_ROMFS::find_decompress(fw_name, fw_size);
     if (!fw) {
         hal.console->printf("failed to find %s\n", fw_name);
-        hal.scheduler->expect_delay_ms(0);
         return false;
     }
 
@@ -243,7 +243,6 @@ bool Util::flash_bootloader()
     if (!memcmp(fw, (const void*)addr, fw_size)) {
         hal.console->printf("Bootloader up-to-date\n");
         free(fw);
-        hal.scheduler->expect_delay_ms(0);
         return true;
     }
 
@@ -251,7 +250,6 @@ bool Util::flash_bootloader()
     if (!hal.flash->erasepage(0)) {
         hal.console->printf("Erase failed\n");
         free(fw);
-        hal.scheduler->expect_delay_ms(0);
         return false;
     }
     hal.console->printf("Flashing %s @%08x\n", fw_name, (unsigned int)addr);
@@ -267,16 +265,14 @@ bool Util::flash_bootloader()
         }
         hal.console->printf("Flash OK\n");
         free(fw);
-        hal.scheduler->expect_delay_ms(0);
         return true;
     }
 
     hal.console->printf("Flash failed after %u attempts\n", max_attempts);
     free(fw);
-    hal.scheduler->expect_delay_ms(0);
     return false;
 }
-#endif //#ifndef HAL_NO_FLASH_SUPPORT
+#endif // !HAL_NO_FLASH_SUPPORT && !HAL_NO_ROMFS_SUPPORT
 
 /*
   display system identifer - board type and serial number
@@ -321,57 +317,4 @@ bool Util::fs_init(void)
 bool Util::was_watchdog_reset() const
 {
     return stm32_was_watchdog_reset();
-}
-
-// return true if safety was off and this was a watchdog reset
-bool Util::was_watchdog_safety_off() const
-{
-    return stm32_was_watchdog_reset() && stm32_get_boot_backup_safety_state() == false;
-}
-
-// return true if vehicle was armed and this was a watchdog reset
-bool Util::was_watchdog_armed() const
-{
-    return stm32_was_watchdog_reset() && stm32_get_boot_backup_armed() == true;
-}
-
-/*
-  change armed state
- */
-void Util::set_soft_armed(const bool b)
-{
-    AP_HAL::Util::set_soft_armed(b);
-    stm32_set_backup_armed(b);
-}
-
-// backup home state for restore on watchdog reset
-void Util::set_backup_home_state(int32_t lat, int32_t lon, int32_t alt_cm) const
-{
-    stm32_set_backup_home(lat, lon, alt_cm);
-}
-
-// backup home state for restore on watchdog reset
-bool Util::get_backup_home_state(int32_t &lat, int32_t &lon, int32_t &alt_cm) const
-{
-    if (was_watchdog_reset()) {
-        stm32_get_backup_home(&lat, &lon, &alt_cm);
-        return true;
-    }
-    return false;
-}
-
-// backup atttude for restore on watchdog reset
-void Util::set_backup_attitude(int32_t roll_cd, int32_t pitch_cd, int32_t yaw_cd) const
-{
-    stm32_set_attitude(roll_cd, pitch_cd, yaw_cd);
-}
-
-// get watchdog reset attitude
-bool Util::get_backup_attitude(int32_t &roll_cd, int32_t &pitch_cd, int32_t &yaw_cd) const
-{
-    if (was_watchdog_reset()) {
-        stm32_get_attitude(&roll_cd, &pitch_cd, &yaw_cd);
-        return true;
-    }
-    return false;
 }

@@ -16,6 +16,7 @@
 #include "AP_VisualOdom.h"
 #include "AP_VisualOdom_Backend.h"
 #include "AP_VisualOdom_MAV.h"
+#include <AP_AHRS/AP_AHRS.h>
 #include <AP_Logger/AP_Logger.h>
 
 extern const AP_HAL::HAL &hal;
@@ -126,7 +127,7 @@ bool AP_VisualOdom::healthy() const
 }
 
 // consume VISION_POSITION_DELTA MAVLink message
-void AP_VisualOdom::handle_msg(mavlink_message_t *msg)
+void AP_VisualOdom::handle_msg(const mavlink_message_t &msg)
 {
     // exit immediately if not enabled
     if (!enabled()) {

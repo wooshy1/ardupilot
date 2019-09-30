@@ -6,8 +6,8 @@
 
 #if ADVANCED_FAILSAFE == ENABLED
 // Constructor
-AP_AdvancedFailsafe_Plane::AP_AdvancedFailsafe_Plane(AP_Mission &_mission, const AP_GPS &_gps) :
-    AP_AdvancedFailsafe(_mission, _gps)
+AP_AdvancedFailsafe_Plane::AP_AdvancedFailsafe_Plane(AP_Mission &_mission) :
+    AP_AdvancedFailsafe(_mission)
 {}
 
 
@@ -16,6 +16,12 @@ AP_AdvancedFailsafe_Plane::AP_AdvancedFailsafe_Plane(AP_Mission &_mission, const
  */
 void AP_AdvancedFailsafe_Plane::terminate_vehicle(void)
 {
+    if (plane.quadplane.available() && _terminate_action == TERMINATE_ACTION_LAND) {
+        // perform a VTOL landing
+        plane.set_mode(plane.mode_qland, MODE_REASON_FENCE_BREACH);
+        return;
+    }
+
     plane.g2.servo_channels.disable_passthrough(true);
     
     if (_terminate_action == TERMINATE_ACTION_LAND) {
@@ -47,7 +53,7 @@ void AP_AdvancedFailsafe_Plane::terminate_vehicle(void)
     plane.quadplane.afs_terminate();
     
     // also disarm to ensure that ignition is cut
-    plane.disarm_motors();
+    plane.arming.disarm();
 }
 
 void AP_AdvancedFailsafe_Plane::setup_IO_failsafe(void)

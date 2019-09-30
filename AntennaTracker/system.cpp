@@ -20,13 +20,16 @@ void Tracker::init_tracker()
     // Check the EEPROM format version before loading any parameters from EEPROM
     load_parameters();
 
+    // initialise stats module
+    stats.init();
+
     mavlink_system.sysid = g.sysid_this_mav;
 
     // initialise serial ports
     serial_manager.init();
 
     // setup first port early to allow BoardConfig to report errors
-    gcs().chan(0).setup_uart(serial_manager, AP_SerialManager::SerialProtocol_MAVLink, 0);
+    gcs().setup_console();
 
     // Register mavlink_delay_cb, which will run anytime you have
     // more than 5ms remaining in your call to hal.scheduler->delay
@@ -50,7 +53,7 @@ void Tracker::init_tracker()
     barometer.init();
 
     // setup telem slots with serial ports
-    gcs().setup_uarts(serial_manager);
+    gcs().setup_uarts();
 
 #if LOGGING_ENABLED == ENABLED
     log_init();
@@ -235,6 +238,7 @@ void Tracker::set_mode(enum ControlMode mode, mode_reason_t reason)
 
 	// log mode change
 	logger.Write_Mode(control_mode, reason);
+  gcs().send_message(MSG_HEARTBEAT);
 
     nav_status.bearing = ahrs.yaw_sensor * 0.01f;
 }

@@ -55,6 +55,10 @@ bool Sub::set_mode(control_mode_t mode, mode_reason_t reason)
         success = manual_init();
         break;
 
+    case MOTOR_DETECT:
+        success = motordetect_init();
+        break;
+
     default:
         success = false;
         break;
@@ -71,6 +75,7 @@ bool Sub::set_mode(control_mode_t mode, mode_reason_t reason)
         control_mode = mode;
         control_mode_reason = reason;
         logger.Write_Mode(control_mode, control_mode_reason);
+        gcs().send_message(MSG_HEARTBEAT);
 
         // update notify object
         notify_flight_mode(control_mode);
@@ -135,6 +140,10 @@ void Sub::update_flight_mode()
 
     case MANUAL:
         manual_run();
+        break;
+
+    case MOTOR_DETECT:
+        motordetect_run();
         break;
 
     default:

@@ -6,19 +6,13 @@
 
 #if ADVANCED_FAILSAFE == ENABLED
 
-// Constructor
-AP_AdvancedFailsafe_Rover::AP_AdvancedFailsafe_Rover(AP_Mission &_mission, const AP_GPS &_gps) :
-    AP_AdvancedFailsafe(_mission, _gps)
-{}
-
-
 /*
   Setup radio_out values for all channels to termination values
  */
 void AP_AdvancedFailsafe_Rover::terminate_vehicle(void)
 {
     // disarm as well
-    rover.disarm_motors();
+    AP::arming().disarm();
 
     // Set to HOLD mode
     rover.set_mode(rover.mode_hold, MODE_REASON_CRASH_FAILSAFE);

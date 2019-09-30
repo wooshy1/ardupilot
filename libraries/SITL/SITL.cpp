@@ -141,13 +141,14 @@ const AP_Param::GroupInfo SITL::var_info2[] = {
     // @Path: ./SIM_Parachute.cpp
     AP_SUBGROUPINFO(parachute_sim, "PARA_", 27, SITL, Parachute),
 
-    // vibration frequencies on each axis
+    // enable bandwidth limitting on telemetry ports:
     AP_GROUPINFO("BAUDLIMIT_EN",   28, SITL,  telem_baudlimit_enable, 0),
 
     // @Group: PLD_
     // @Path: ./SIM_Precland.cpp
     AP_SUBGROUPINFO(precland_sim, "PLD_", 29, SITL, SIM_Precland),
 
+    // apply a force to the vehicle over a period of time:
     AP_GROUPINFO("SHOVE_X",     30, SITL,  shove.x, 0),
     AP_GROUPINFO("SHOVE_Y",     31, SITL,  shove.y, 0),
     AP_GROUPINFO("SHOVE_Z",     32, SITL,  shove.z, 0),
@@ -166,10 +167,32 @@ const AP_Param::GroupInfo SITL::var_info2[] = {
     AP_GROUPINFO("TWIST_TIME",  40, SITL,  twist.t, 0),
 
     AP_GROUPINFO("GND_BEHAV",   41, SITL,  gnd_behav, -1),
+    AP_GROUPINFO("BARO_COUNT",  42, SITL,  baro_count,  1),
+
+    AP_GROUPINFO("GPS_HDG",     43, SITL,  gps_hdg_enabled, 0),
+
+    // sailboat wave and tide simulation parameters
+    AP_GROUPINFO("WAVE_ENABLE", 44, SITL,  wave.enable, 0.0f),
+    AP_GROUPINFO("WAVE_LENGTH", 45, SITL,  wave.length, 10.0f),
+    AP_GROUPINFO("WAVE_AMP",    46, SITL,  wave.amp, 0.5f),
+    AP_GROUPINFO("WAVE_DIR",    47, SITL,  wave.direction, 0.0f),
+    AP_GROUPINFO("WAVE_SPEED",  48, SITL,  wave.speed, 0.5f),
+    AP_GROUPINFO("TIDE_DIR",    49, SITL,  tide.direction, 0.0f),
+    AP_GROUPINFO("TIDE_SPEED",  50, SITL,  tide.speed, 0.0f),
+
+    // the following coordinates are for CMAC, in Canberra
+    AP_GROUPINFO("OPOS_LAT",    51, SITL,  opos.lat, -35.363261f),
+    AP_GROUPINFO("OPOS_LNG",    52, SITL,  opos.lng, 149.165230f),
+    AP_GROUPINFO("OPOS_ALT",    53, SITL,  opos.alt, 584.0f),
+    AP_GROUPINFO("OPOS_HDG",    54, SITL,  opos.hdg, 353.0f),
+
+    // extra delay per main loop
+    AP_GROUPINFO("LOOP_DELAY",  55, SITL,  loop_delay, 0),
 
     AP_GROUPEND
+
 };
-    
+
 
 /* report SITL state via MAVLink */
 void SITL::simstate_send(mavlink_channel_t chan)

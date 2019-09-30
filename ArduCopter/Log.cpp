@@ -16,7 +16,7 @@ struct PACKED log_Control_Tuning {
     float    inav_alt;
     int32_t  baro_alt;
     float    desired_rangefinder_alt;
-    int16_t  rangefinder_alt;
+    float    rangefinder_alt;
     float    terr_alt;
     int16_t  target_climb_rate;
     int16_t  climb_rate;
@@ -39,12 +39,13 @@ void Copter::Log_Write_Control_Tuning()
         target_climb_rate_cms = pos_control->get_vel_target_z();
     }
 
-    float surface_tracking_target_alt;
-    if (surface_tracking.valid_for_logging) {
-        surface_tracking_target_alt = surface_tracking.target_alt_cm * 0.01f; // cm->m
-    } else {
-        surface_tracking_target_alt = logger.quiet_nan();
+    // get surface tracking alts
+    float desired_rangefinder_alt, rangefinder_alt;
+    if (!surface_tracking.get_dist_for_logging(desired_rangefinder_alt, rangefinder_alt)) {
+        desired_rangefinder_alt = AP::logger().quiet_nan();
+        rangefinder_alt = AP::logger().quiet_nan();;
     }
+
     struct log_Control_Tuning pkt = {
         LOG_PACKET_HEADER_INIT(LOG_CONTROL_TUNING_MSG),
         time_us             : AP_HAL::micros64(),
@@ -55,8 +56,8 @@ void Copter::Log_Write_Control_Tuning()
         desired_alt         : des_alt_m,
         inav_alt            : inertial_nav.get_altitude() / 100.0f,
         baro_alt            : baro_alt,
-        desired_rangefinder_alt : surface_tracking_target_alt,
-        rangefinder_alt     : rangefinder_state.alt_cm,
+        desired_rangefinder_alt : desired_rangefinder_alt,
+        rangefinder_alt     : rangefinder_alt,
         terr_alt            : terr_alt,
         target_climb_rate   : target_climb_rate_cms,
         climb_rate          : int16_t(inertial_nav.get_velocity_z()) // float -> int16_t
@@ -82,7 +83,7 @@ void Copter::Log_Write_Attitude()
 // Write an EKF and POS packet
 void Copter::Log_Write_EKF_POS()
 {
-    logger.Write_EKF(ahrs);
+    AP::ahrs_navekf().Log_Write();
     logger.Write_AHRS2(ahrs);
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     sitl.Log_Write_SIMSTATE();
@@ -280,6 +281,8 @@ struct PACKED log_Heli {
     uint64_t time_us;
     float    desired_rotor_speed;
     float    main_rotor_speed;
+    float    governor_output;
+    float    control_output;
 };
 
 #if FRAME_CONFIG == HELI_FRAME
@@ -291,6 +294,8 @@ void Copter::Log_Write_Heli()
         time_us                 : AP_HAL::micros64(),
         desired_rotor_speed     : motors->get_desired_rotor_speed(),
         main_rotor_speed        : motors->get_main_rotor_speed(),
+        governor_output         : motors->get_governor_output(),
+        control_output          : motors->get_control_output(),
     };
     logger.WriteBlock(&pkt_heli, sizeof(pkt_heli));
 }
@@ -388,7 +393,7 @@ const struct LogStructure Copter::log_structure[] = {
     { LOG_PARAMTUNE_MSG, sizeof(log_ParameterTuning),
       "PTUN", "QBfff",         "TimeUS,Param,TunVal,TunMin,TunMax", "s----", "F----" },
     { LOG_CONTROL_TUNING_MSG, sizeof(log_Control_Tuning),
-      "CTUN", "Qffffffefcfhh", "TimeUS,ThI,ABst,ThO,ThH,DAlt,Alt,BAlt,DSAlt,SAlt,TAlt,DCRt,CRt", "s----mmmmmmnn", "F----00B0BBBB" },
+      "CTUN", "Qffffffefffhh", "TimeUS,ThI,ABst,ThO,ThH,DAlt,Alt,BAlt,DSAlt,SAlt,TAlt,DCRt,CRt", "s----mmmmmmnn", "F----00B00BBB" },
     { LOG_MOTBATT_MSG, sizeof(log_MotBatt),
       "MOTB", "Qffff",  "TimeUS,LiftMax,BatVolt,BatRes,ThLimit", "s-vw-", "F-00-" },
     { LOG_DATA_INT16_MSG, sizeof(log_Data_Int16t),         
@@ -403,7 +408,7 @@ const struct LogStructure Copter::log_structure[] = {
       "DFLT",  "QBf",         "TimeUS,Id,Value", "s--", "F--" },
 #if FRAME_CONFIG == HELI_FRAME
     { LOG_HELI_MSG, sizeof(log_Heli),
-      "HELI",  "Qff",         "TimeUS,DRRPM,ERRPM", "s--", "F--" },
+      "HELI",  "Qffff",        "TimeUS,DRRPM,ERRPM,Gov,Throt", "s----", "F----" },
 #endif
 #if PRECISION_LANDING == ENABLED
     { LOG_PRECLAND_MSG, sizeof(log_Precland),
@@ -417,7 +422,7 @@ void Copter::Log_Write_Vehicle_Startup_Messages()
 {
     // only 200(?) bytes are guaranteed by AP_Logger
     logger.Write_MessageF("Frame: %s", get_frame_string());
-    logger.Write_Mode(control_mode, control_mode_reason);
+    logger.Write_Mode((uint8_t)control_mode, control_mode_reason);
     ahrs.Log_Write_Home_And_Origin();
     gps.Write_AP_Logger_Log_Startup_messages();
 }

@@ -23,7 +23,6 @@
 #include <AP_Common/AP_Common.h>
 #include <AP_Common/Location.h>
 #include <GCS_MAVLink/GCS_MAVLink.h>
-#include <AP_SerialManager/AP_SerialManager.h>
 
 // maximum number of mounts
 #define AP_MOUNT_MAX_INSTANCES          1
@@ -74,7 +73,7 @@ public:
     };
 
     // init - detect and initialise all mounts
-    void init(const AP_SerialManager& serial_manager);
+    void init();
 
     // update - give mount opportunity to update servos.  should be called at 10hz or higher
     void update();
@@ -114,8 +113,8 @@ public:
 
     // mavlink message handling:
     MAV_RESULT handle_command_long(const mavlink_command_long_t &packet);
-    void handle_param_value(const mavlink_message_t *msg);
-    void handle_message(mavlink_channel_t chan, const mavlink_message_t *msg);
+    void handle_param_value(const mavlink_message_t &msg);
+    void handle_message(mavlink_channel_t chan, const mavlink_message_t &msg);
 
     // send a GIMBAL_REPORT message to GCS
     void send_gimbal_report(mavlink_channel_t chan);
@@ -175,9 +174,9 @@ protected:
 
 private:
 
-    void handle_gimbal_report(mavlink_channel_t chan, const mavlink_message_t *msg);
-    void handle_mount_configure(const mavlink_message_t *msg);
-    void handle_mount_control(const mavlink_message_t *msg);
+    void handle_gimbal_report(mavlink_channel_t chan, const mavlink_message_t &msg);
+    void handle_mount_configure(const mavlink_message_t &msg);
+    void handle_mount_control(const mavlink_message_t &msg);
 
     MAV_RESULT handle_command_do_mount_configure(const mavlink_command_long_t &packet);
     MAV_RESULT handle_command_do_mount_control(const mavlink_command_long_t &packet);

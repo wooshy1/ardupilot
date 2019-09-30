@@ -45,6 +45,10 @@ void RC_Channel_Rover::init_aux_function(const aux_func_t ch_option, const aux_s
     case AUX_FUNC::LOITER:
     case AUX_FUNC::FOLLOW:
     case AUX_FUNC::SAILBOAT_TACK:
+    case AUX_FUNC::MAINSAIL:
+        break;
+    case AUX_FUNC::SAILBOAT_MOTOR_3POS:
+        do_aux_function_sailboat_motor_3pos(ch_flag);
         break;
     default:
         RC_Channel::init_aux_function(ch_option, ch_flag);
@@ -95,6 +99,21 @@ void RC_Channel_Rover::add_waypoint_for_current_loc()
     }
 }
 
+void RC_Channel_Rover::do_aux_function_sailboat_motor_3pos(const aux_switch_pos_t ch_flag)
+{
+    switch(ch_flag) {
+    case HIGH:
+        rover.g2.sailboat.set_motor_state(Sailboat::UseMotor::USE_MOTOR_ALWAYS);
+        break;
+    case MIDDLE:
+        rover.g2.sailboat.set_motor_state(Sailboat::UseMotor::USE_MOTOR_ASSIST);
+        break;
+    case LOW:
+        rover.g2.sailboat.set_motor_state(Sailboat::UseMotor::USE_MOTOR_NEVER);
+        break;
+    }
+}
+
 void RC_Channel_Rover::do_aux_function(const aux_func_t ch_option, const aux_switch_pos_t ch_flag)
 {
     switch (ch_option) {
@@ -131,15 +150,6 @@ void RC_Channel_Rover::do_aux_function(const aux_func_t ch_option, const aux_swi
     case AUX_FUNC::LEARN_CRUISE:
         if (ch_flag == HIGH) {
             rover.cruise_learn_start();
-        }
-        break;
-
-    // arm or disarm the motors
-    case AUX_FUNC::ARMDISARM:
-        if (ch_flag == HIGH) {
-            rover.arm_motors(AP_Arming::Method::RUDDER);
-        } else if (ch_flag == LOW) {
-            rover.disarm_motors();
         }
         break;
 
@@ -202,6 +212,15 @@ void RC_Channel_Rover::do_aux_function(const aux_func_t ch_option, const aux_swi
     case AUX_FUNC::SAILBOAT_TACK:
         // any switch movement interpreted as request to tack
         rover.control_mode->handle_tack_request();
+        break;
+
+    // sailboat motor state 3pos
+    case AUX_FUNC::SAILBOAT_MOTOR_3POS:
+        do_aux_function_sailboat_motor_3pos(ch_flag);
+        break;
+
+    // mainsail input, nothing to do
+    case AUX_FUNC::MAINSAIL:
         break;
 
     default:

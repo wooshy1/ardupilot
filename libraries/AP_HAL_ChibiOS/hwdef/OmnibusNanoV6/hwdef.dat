@@ -73,7 +73,15 @@ PC11 SPI3_MISO SPI3
 PC10 SPI3_SCK SPI3
 
 PA8 LED OUTPUT HIGH GPIO(41)
+
+# passive buzzer disabled, timer 3 used for PWM(4) output
 #PB4 TIM3_CH1 TIM3 GPIO(70) ALARM
+
+# use active buzzer instead
+PB4 BUZZER OUTPUT GPIO(80) LOW
+define HAL_BUZZER_PIN 80
+define HAL_BUZZER_ON 1
+define HAL_BUZZER_OFF 0
 
 PA11 OTG_FS_DM OTG1
 PA12 OTG_FS_DP OTG1
@@ -98,11 +106,11 @@ define HAL_LOGGING_DATAFLASH
 
 define CONFIG_HAL_BOARD_SUBTYPE HAL_BOARD_SUBTYPE_CHIBIOS_OMNIBUSNANOV6
 
-define HAL_INS_DEFAULT HAL_INS_MPU60XX_SPI
-define HAL_INS_DEFAULT_ROTATION ROTATION_YAW_90
+# one IMU
+IMU Invensense SPI:mpu6000 ROTATION_YAW_90
 
-define HAL_BARO_DEFAULT HAL_BARO_BMP280_SPI
-define HAL_BARO_BMP280_NAME "bmp280"
+# one baro
+BARO BMP280 SPI:bmp280
 
 # no built-in compass, but probe the i2c bus for all possible
 # external compass types

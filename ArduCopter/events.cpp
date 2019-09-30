@@ -12,11 +12,11 @@ void Copter::failsafe_radio_on_event()
     }
 
     if (should_disarm_on_failsafe()) {
-        init_disarm_motors();
+        arming.disarm();
     } else {
-        if (control_mode == AUTO && g.failsafe_throttle == FS_THR_ENABLED_CONTINUE_MISSION) {
+        if (control_mode == Mode::Number::AUTO && g.failsafe_throttle == FS_THR_ENABLED_CONTINUE_MISSION) {
             // continue mission
-        } else if (control_mode == LAND &&
+        } else if (flightmode->is_landing() &&
                    battery.has_failsafed() &&
                    battery.get_highest_failsafe_priority() <= FAILSAFE_LAND_PRIORITY) {
             // continue landing or other high priority failsafes
@@ -55,7 +55,7 @@ void Copter::handle_battery_failsafe(const char *type_str, const int8_t action)
 
     // failsafe check
     if (should_disarm_on_failsafe()) {
-        init_disarm_motors();
+        arming.disarm();
     } else {
         switch ((Failsafe_Action)action) {
             case Failsafe_Action_None:
@@ -78,7 +78,7 @@ void Copter::handle_battery_failsafe(const char *type_str, const int8_t action)
                 snprintf(battery_type_str, 17, "%s battery", type_str);
                 g2.afs.gcs_terminate(true, battery_type_str);
 #else
-                init_disarm_motors();
+                arming.disarm();
 #endif
         }
     }
@@ -87,17 +87,27 @@ void Copter::handle_battery_failsafe(const char *type_str, const int8_t action)
 // failsafe_gcs_check - check for ground station failsafe
 void Copter::failsafe_gcs_check()
 {
-    uint32_t last_gcs_update_ms;
-
-    // return immediately if gcs failsafe is disabled, gcs has never been connected or we are not overriding rc controls from the gcs and we are not in guided mode
-    // this also checks to see if we have a GCS failsafe active, if we do, then must continue to process the logic for recovery from this state.
-    if ((!failsafe.gcs)&&(g.failsafe_gcs == FS_GCS_DISABLED || failsafe.last_heartbeat_ms == 0 || (!RC_Channels::has_active_overrides() && control_mode != GUIDED))) {
+    if (failsafe.gcs) {
+        // we must run the failsafe checks if we are in failsafe -
+        // otherwise we will never leave failsafe
+    } else if (g.failsafe_gcs == FS_GCS_DISABLED) {
+        // simply disabled
+        return;
+    } else if (failsafe.last_heartbeat_ms == 0) {
+        // GCS has never connected
+        return;
+    } else if (RC_Channels::has_active_overrides()) {
+        // GCS is currently telling us what to do!
+    } else if (control_mode == Mode::Number::GUIDED ||
+               control_mode == Mode::Number::GUIDED_NOGPS) {
+        // GCS is currently telling us what to do!
+    } else {
         return;
     }
 
     // calc time since last gcs update
     // note: this only looks at the heartbeat from the device id set by g.sysid_my_gcs
-    last_gcs_update_ms = millis() - failsafe.last_heartbeat_ms;
+    const uint32_t last_gcs_update_ms = millis() - failsafe.last_heartbeat_ms;
 
     // check if all is well
     if (last_gcs_update_ms < FS_GCS_TIMEOUT_MS) {
@@ -122,9 +132,10 @@ void Copter::failsafe_gcs_check()
     RC_Channels::clear_overrides();
 
     if (should_disarm_on_failsafe()) {
-        init_disarm_motors();
+        arming.disarm();
     } else {
-        if (control_mode == AUTO && g.failsafe_gcs == FS_GCS_ENABLED_CONTINUE_MISSION) {
+        if (control_mode == Mode::Number::AUTO &&
+            g.failsafe_gcs == FS_GCS_ENABLED_CONTINUE_MISSION) {
             // continue mission
         } else if (g.failsafe_gcs == FS_GCS_ENABLED_ALWAYS_SMARTRTL_OR_RTL) {
             set_mode_SmartRTL_or_RTL(MODE_REASON_GCS_FAILSAFE);
@@ -147,7 +158,10 @@ void Copter::failsafe_gcs_off_event(void)
 void Copter::failsafe_terrain_check()
 {
     // trigger with 5 seconds of failures while in AUTO mode
-    bool valid_mode = (control_mode == AUTO || control_mode == GUIDED || control_mode == GUIDED_NOGPS || control_mode == RTL);
+    bool valid_mode = (control_mode == Mode::Number::AUTO ||
+                       control_mode == Mode::Number::GUIDED ||
+                       control_mode == Mode::Number::GUIDED_NOGPS ||
+                       control_mode == Mode::Number::RTL);
     bool timeout = (failsafe.terrain_last_failure_ms - failsafe.terrain_first_failure_ms) > FS_TERRAIN_TIMEOUT_MS;
     bool trigger_event = valid_mode && timeout;
 
@@ -190,9 +204,9 @@ void Copter::failsafe_terrain_on_event()
     AP::logger().Write_Error(LogErrorSubsystem::FAILSAFE_TERRAIN, LogErrorCode::FAILSAFE_OCCURRED);
 
     if (should_disarm_on_failsafe()) {
-        init_disarm_motors();
+        arming.disarm();
 #if MODE_RTL_ENABLED == ENABLED
-    } else if (control_mode == RTL) {
+    } else if (control_mode == Mode::Number::RTL) {
         mode_rtl.restart_without_terrain();
 #endif
     } else {
@@ -225,7 +239,7 @@ void Copter::gpsglitch_check()
 void Copter::set_mode_RTL_or_land_with_pause(mode_reason_t reason)
 {
     // attempt to switch to RTL, if this fails then switch to Land
-    if (!set_mode(RTL, reason)) {
+    if (!set_mode(Mode::Number::RTL, reason)) {
         // set mode to land will trigger mode change notification to pilot
         set_mode_land_with_pause(reason);
     } else {
@@ -239,7 +253,7 @@ void Copter::set_mode_RTL_or_land_with_pause(mode_reason_t reason)
 void Copter::set_mode_SmartRTL_or_land_with_pause(mode_reason_t reason)
 {
     // attempt to switch to SMART_RTL, if this failed then switch to Land
-    if (!set_mode(SMART_RTL, reason)) {
+    if (!set_mode(Mode::Number::SMART_RTL, reason)) {
         gcs().send_text(MAV_SEVERITY_WARNING, "SmartRTL Unavailable, Using Land Mode");
         set_mode_land_with_pause(reason);
     } else {
@@ -253,7 +267,7 @@ void Copter::set_mode_SmartRTL_or_RTL(mode_reason_t reason)
 {
     // attempt to switch to SmartRTL, if this failed then attempt to RTL
     // if that fails, then land
-    if (!set_mode(SMART_RTL, reason)) {
+    if (!set_mode(Mode::Number::SMART_RTL, reason)) {
         gcs().send_text(MAV_SEVERITY_WARNING, "SmartRTL Unavailable, Trying RTL Mode");
         set_mode_RTL_or_land_with_pause(reason);
     } else {
@@ -267,11 +281,11 @@ bool Copter::should_disarm_on_failsafe() {
     }
 
     switch (control_mode) {
-        case STABILIZE:
-        case ACRO:
+        case Mode::Number::STABILIZE:
+        case Mode::Number::ACRO:
             // if throttle is zero OR vehicle is landed disarm motors
             return ap.throttle_zero || ap.land_complete;
-        case AUTO:
+        case Mode::Number::AUTO:
             // if mission has not started AND vehicle is landed, disarm motors
             return !ap.auto_armed && ap.land_complete;
         default:

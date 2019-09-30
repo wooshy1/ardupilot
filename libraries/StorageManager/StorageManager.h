@@ -34,6 +34,8 @@
 #define STORAGE_NUM_AREAS 10
 #elif HAL_STORAGE_SIZE >= 4096
 #define STORAGE_NUM_AREAS 4
+#elif HAL_STORAGE_SIZE > 0
+#define STORAGE_NUM_AREAS 1
 #else
 #error "Unsupported storage size"
 #endif
@@ -89,10 +91,12 @@ public:
 
     // helper functions
     uint8_t  read_byte(uint16_t loc) const;
+    uint8_t  read_uint8(uint16_t loc) const { return read_byte(loc); }
     uint16_t read_uint16(uint16_t loc) const;
     uint32_t read_uint32(uint16_t loc) const;
 
     void write_byte(uint16_t loc, uint8_t value) const;
+    void write_uint8(uint16_t loc, uint8_t value) const { return write_byte(loc, value); }
     void write_uint16(uint16_t loc, uint16_t value) const;
     void write_uint32(uint16_t loc, uint32_t value) const;
 

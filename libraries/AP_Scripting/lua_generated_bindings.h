@@ -8,10 +8,17 @@
 #include <AP_Math/AP_Math.h>
 #include <AP_GPS/AP_GPS.h>
 #include <AP_BattMonitor/AP_BattMonitor.h>
+#include <AP_Arming/AP_Arming.h>
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Common/Location.h>
 #include "lua/src/lua.hpp"
 #include <new>
+
+#if !defined(AP_TERRAIN_AVAILABLE) || (AP_TERRAIN_AVAILABLE != 1)
+  #error Scripting requires terrain to be available
+
+#endif // !defined(AP_TERRAIN_AVAILABLE) || (AP_TERRAIN_AVAILABLE != 1)
+
 
 int new_Vector2f(lua_State *L);
 Vector2f * check_Vector2f(lua_State *L, int arg);

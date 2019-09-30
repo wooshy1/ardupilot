@@ -103,7 +103,7 @@ void GCS_MAVLINK_Tracker::send_pid_tuning()
         const AP_Logger::PID_Info *pid_info;
         pid_info = &g.pidPitch2Srv.get_pid_info();
         mavlink_msg_pid_tuning_send(chan, PID_TUNING_PITCH,
-                                    pid_info->desired,
+                                    pid_info->target,
                                     pid_info->actual,
                                     pid_info->FF,
                                     pid_info->P,
@@ -119,7 +119,7 @@ void GCS_MAVLINK_Tracker::send_pid_tuning()
         const AP_Logger::PID_Info *pid_info;
         pid_info = &g.pidYaw2Srv.get_pid_info();
         mavlink_msg_pid_tuning_send(chan, PID_TUNING_YAW,
-                                    pid_info->desired,
+                                    pid_info->target,
                                     pid_info->actual,
                                     pid_info->FF,
                                     pid_info->P,
@@ -145,7 +145,7 @@ void GCS_MAVLINK_Tracker::handle_change_alt_request(AP_Mission::Mission_Command&
 /*
   default stream rates to 1Hz
  */
-const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
+const AP_Param::GroupInfo GCS_MAVLINK_Parameters::var_info[] = {
     // @Param: RAW_SENS
     // @DisplayName: Raw sensor stream rate
     // @Description: Raw sensor stream rate to ground station
@@ -153,7 +153,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("RAW_SENS", 0, GCS_MAVLINK, streamRates[0],  1),
+    AP_GROUPINFO("RAW_SENS", 0, GCS_MAVLINK_Parameters, streamRates[0],  1),
 
     // @Param: EXT_STAT
     // @DisplayName: Extended status stream rate to ground station
@@ -162,7 +162,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("EXT_STAT", 1, GCS_MAVLINK, streamRates[1],  1),
+    AP_GROUPINFO("EXT_STAT", 1, GCS_MAVLINK_Parameters, streamRates[1],  1),
 
     // @Param: RC_CHAN
     // @DisplayName: RC Channel stream rate to ground station
@@ -171,7 +171,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("RC_CHAN",  2, GCS_MAVLINK, streamRates[2],  1),
+    AP_GROUPINFO("RC_CHAN",  2, GCS_MAVLINK_Parameters, streamRates[2],  1),
 
     // @Param: RAW_CTRL
     // @DisplayName: Raw Control stream rate to ground station
@@ -180,7 +180,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("RAW_CTRL", 3, GCS_MAVLINK, streamRates[3],  1),
+    AP_GROUPINFO("RAW_CTRL", 3, GCS_MAVLINK_Parameters, streamRates[3],  1),
 
     // @Param: POSITION
     // @DisplayName: Position stream rate to ground station
@@ -189,7 +189,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("POSITION", 4, GCS_MAVLINK, streamRates[4],  1),
+    AP_GROUPINFO("POSITION", 4, GCS_MAVLINK_Parameters, streamRates[4],  1),
 
     // @Param: EXTRA1
     // @DisplayName: Extra data type 1 stream rate to ground station
@@ -198,7 +198,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("EXTRA1",   5, GCS_MAVLINK, streamRates[5],  1),
+    AP_GROUPINFO("EXTRA1",   5, GCS_MAVLINK_Parameters, streamRates[5],  1),
 
     // @Param: EXTRA2
     // @DisplayName: Extra data type 2 stream rate to ground station
@@ -207,7 +207,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("EXTRA2",   6, GCS_MAVLINK, streamRates[6],  1),
+    AP_GROUPINFO("EXTRA2",   6, GCS_MAVLINK_Parameters, streamRates[6],  1),
 
     // @Param: EXTRA3
     // @DisplayName: Extra data type 3 stream rate to ground station
@@ -216,7 +216,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("EXTRA3",   7, GCS_MAVLINK, streamRates[7],  1),
+    AP_GROUPINFO("EXTRA3",   7, GCS_MAVLINK_Parameters, streamRates[7],  1),
 
     // @Param: PARAMS
     // @DisplayName: Parameter stream rate to ground station
@@ -225,7 +225,7 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
     // @Range: 0 10
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("PARAMS",   8, GCS_MAVLINK, streamRates[8],  10),
+    AP_GROUPINFO("PARAMS",   8, GCS_MAVLINK_Parameters, streamRates[8],  10),
     AP_GROUPEND
 };
 
@@ -256,7 +256,8 @@ static const ap_message STREAM_RAW_CONTROLLER_msgs[] = {
     MSG_SERVO_OUTPUT_RAW,
 };
 static const ap_message STREAM_RC_CHANNELS_msgs[] = {
-    MSG_RADIO_IN
+    MSG_RC_CHANNELS,
+    MSG_RC_CHANNELS_RAW, // only sent on a mavlink1 connection
 };
 static const ap_message STREAM_EXTRA1_msgs[] = {
     MSG_ATTITUDE,
@@ -266,6 +267,7 @@ static const ap_message STREAM_EXTRA3_msgs[] = {
     MSG_AHRS,
     MSG_HWSTATUS,
     MSG_SIMSTATE,
+    MSG_SYSTEM_TIME,
     MSG_AHRS2,
     MSG_AHRS3,
     MSG_MAG_CAL_REPORT,
@@ -293,7 +295,7 @@ const struct GCS_MAVLINK::stream_entries GCS_MAVLINK::all_stream_entries[] = {
   MAVLINK_MSG_ID_SCALED_PRESSUREs
 */
 void GCS_MAVLINK_Tracker::packetReceived(const mavlink_status_t &status,
-                                         mavlink_message_t &msg)
+                                         const mavlink_message_t &msg)
 {
     // return immediately if sysid doesn't match our target sysid
     if ((tracker.g.sysid_target != 0) && (tracker.g.sysid_target != msg.sysid)) {
@@ -419,23 +421,21 @@ bool GCS_MAVLINK_Tracker::set_home(const Location& loc, bool lock) {
     return tracker.set_home(loc);
 }
 
-void GCS_MAVLINK_Tracker::handleMessage(mavlink_message_t* msg)
+void GCS_MAVLINK_Tracker::handleMessage(const mavlink_message_t &msg)
 {
-    switch (msg->msgid) {
+    switch (msg.msgid) {
 
     // When mavproxy 'wp sethome' 
     case MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST:
     {
         // decode
         mavlink_mission_write_partial_list_t packet;
-        mavlink_msg_mission_write_partial_list_decode(msg, &packet);
+        mavlink_msg_mission_write_partial_list_decode(&msg, &packet);
         if (packet.start_index == 0)
         {
             // New home at wp index 0. Ask for it
             waypoint_receiving = true;
-            waypoint_request_i = 0;
-            waypoint_request_last = 0;
-            send_message(MSG_NEXT_MISSION_REQUEST);
+            send_message(MSG_NEXT_MISSION_REQUEST_WAYPOINTS);
         }
         break;
     }
@@ -447,7 +447,7 @@ void GCS_MAVLINK_Tracker::handleMessage(mavlink_message_t* msg)
         mavlink_mission_item_t packet;
         MAV_MISSION_RESULT result = MAV_MISSION_ACCEPTED;
 
-        mavlink_msg_mission_item_decode(msg, &packet);
+        mavlink_msg_mission_item_decode(&msg, &packet);
 
         struct Location tell_command;
 
@@ -529,8 +529,8 @@ mission_failed:
         // we are rejecting the mission/waypoint
         mavlink_msg_mission_ack_send(
             chan,
-            msg->sysid,
-            msg->compid,
+            msg.sysid,
+            msg.compid,
             result,
             MAV_MISSION_TYPE_MISSION);
         break;
@@ -539,7 +539,7 @@ mission_failed:
     case MAVLINK_MSG_ID_MANUAL_CONTROL:
     {
         mavlink_manual_control_t packet;
-        mavlink_msg_manual_control_decode(msg, &packet);
+        mavlink_msg_manual_control_decode(&msg, &packet);
         tracker.tracking_manual_control(packet);
         break;
     }
@@ -548,7 +548,7 @@ mission_failed:
     {
         // decode
         mavlink_global_position_int_t packet;
-        mavlink_msg_global_position_int_decode(msg, &packet);
+        mavlink_msg_global_position_int_decode(&msg, &packet);
         tracker.tracking_update_position(packet);
         break;
     }
@@ -557,7 +557,7 @@ mission_failed:
     {
         // decode
         mavlink_scaled_pressure_t packet;
-        mavlink_msg_scaled_pressure_decode(msg, &packet);
+        mavlink_msg_scaled_pressure_decode(&msg, &packet);
         tracker.tracking_update_pressure(packet);
         break;
     }
@@ -585,9 +585,6 @@ uint64_t GCS_MAVLINK_Tracker::capabilities() const
 void Tracker::mavlink_delay_cb()
 {
     static uint32_t last_1hz, last_50hz, last_5s;
-    if (!gcs().chan(0).initialised) {
-        return;
-    }
 
     logger.EnableWrites(false);
 
@@ -650,7 +647,7 @@ void GCS_MAVLINK_Tracker::send_global_position_int()
 
 
 /* dummy methods to avoid having to link against AP_Camera */
-void AP_Camera::control_msg(mavlink_message_t const*) {}
+void AP_Camera::control_msg(const mavlink_message_t &) {}
 void AP_Camera::configure(float, float, float, float, float, float, float) {}
 void AP_Camera::control(float, float, float, float, float, float) {}
 void AP_Camera::send_feedback(mavlink_channel_t chan) {}
@@ -658,3 +655,4 @@ void AP_Camera::send_feedback(mavlink_channel_t chan) {}
 
 // dummy method to avoid linking AFS
 bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate, const char *reason) {return false;}
+AP_AdvancedFailsafe *AP::advancedfailsafe() { return nullptr; }

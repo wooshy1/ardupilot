@@ -85,14 +85,13 @@ static uint16_t log_num;
 
 class AP_LoggerTest_AllTypes : public AP_HAL::HAL::Callbacks {
 public:
-    void setup();
-    void loop();
+    void setup() override;
+    void loop() override;
 
 private:
 
     AP_Int32 log_bitmask;
     AP_Logger logger{log_bitmask};
-    void print_mode(AP_HAL::BetterStream *port, uint8_t mode);
 
     void Log_Write_TypeMessages();
     void Log_Write_TypeMessages_Log_Write();
@@ -227,7 +226,7 @@ void AP_LoggerTest_AllTypes::loop(void)
     hal.scheduler->delay(1000);
 }
 
-const struct AP_Param::GroupInfo        GCS_MAVLINK::var_info[] = {
+const struct AP_Param::GroupInfo        GCS_MAVLINK_Parameters::var_info[] = {
     AP_GROUPEND
 };
 GCS_Dummy _gcs;

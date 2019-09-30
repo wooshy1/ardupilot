@@ -32,7 +32,11 @@ void Plane::failsafe_short_on_event(enum failsafe_state fstype, mode_reason_t re
     case Mode::Number::QACRO:
         failsafe.saved_mode_number = control_mode->mode_number();
         failsafe.saved_mode_set = true;
-        set_mode(mode_qland, reason);
+        if (quadplane.options & QuadPlane::OPTION_FS_QRTL) {
+            set_mode(mode_qrtl, reason);
+        } else {
+            set_mode(mode_qland, reason);
+        }
         break;
         
     case Mode::Number::AUTO:
@@ -94,7 +98,11 @@ void Plane::failsafe_long_on_event(enum failsafe_state fstype, mode_reason_t rea
     case Mode::Number::QLOITER:
     case Mode::Number::QACRO:
     case Mode::Number::QAUTOTUNE:
-        set_mode(mode_qland, reason);
+        if (quadplane.options & QuadPlane::OPTION_FS_QRTL) {
+            set_mode(mode_qrtl, reason);
+        } else {
+            set_mode(mode_qland, reason);
+        }
         break;
         
     case Mode::Number::AUTO:
@@ -174,12 +182,14 @@ void Plane::handle_battery_failsafe(const char *type_str, const int8_t action)
             snprintf(battery_type_str, 17, "%s battery", type_str);
             afs.gcs_terminate(true, battery_type_str);
 #else
-            disarm_motors();
+            arming.disarm();
 #endif
             break;
 
         case Failsafe_Action_Parachute:
+#if PARACHUTE == ENABLED
             parachute_release();
+#endif
             break;
 
         case Failsafe_Action_None:

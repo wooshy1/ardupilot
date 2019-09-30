@@ -5,11 +5,12 @@
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
+#include <AP_GPS/AP_GPS.h>
 
 extern const AP_HAL::HAL& hal;
 
 // constructor
-NavEKF3_core::NavEKF3_core(void) :
+NavEKF3_core::NavEKF3_core(NavEKF3 *_frontend) :
     _perf_UpdateFilter(hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_UpdateFilter")),
     _perf_CovariancePrediction(hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_CovariancePrediction")),
     _perf_FuseVelPosNED(hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_FuseVelPosNED")),
@@ -18,7 +19,14 @@ NavEKF3_core::NavEKF3_core(void) :
     _perf_FuseSideslip(hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_FuseSideslip")),
     _perf_TerrainOffset(hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_TerrainOffset")),
     _perf_FuseOptFlow(hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_FuseOptFlow")),
-    _perf_FuseBodyOdom(hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_FuseBodyOdom"))
+    _perf_FuseBodyOdom(hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_FuseBodyOdom")),
+    frontend(_frontend),
+    // setup the intermediate variables shared by all cores (to save memory)
+    common((struct core_common *)_frontend->core_common),
+    Kfusion(common->Kfusion),
+    KH(common->KH),
+    KHP(common->KHP),
+    nextP(common->nextP)
 {
     _perf_test[0] = hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_Test0");
     _perf_test[1] = hal.util->perf_alloc(AP_HAL::Util::PC_ELAPSED, "EK3_Test1");
@@ -35,17 +43,17 @@ NavEKF3_core::NavEKF3_core(void) :
 }
 
 // setup this core backend
-bool NavEKF3_core::setup_core(NavEKF3 *_frontend, uint8_t _imu_index, uint8_t _core_index)
+bool NavEKF3_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
 {
-    frontend = _frontend;
     imu_index = _imu_index;
+    gyro_index_active = imu_index;
+    accel_index_active = imu_index;
     core_index = _core_index;
     _ahrs = frontend->_ahrs;
 
     /*
       The imu_buffer_length needs to cope with the worst case sensor delay at the
-      maximum fusion rate of 100Hz. Non-imu data coming in at faster than 100Hz is
-      downsampled. For 50Hz main loop rate we need a shorter buffer.
+      target EKF state prediction rate. Non-IMU data coming in faster is downsampled.
      */
 
     // Calculate the expected EKF time step
@@ -57,15 +65,15 @@ bool NavEKF3_core::setup_core(NavEKF3 *_frontend, uint8_t _imu_index, uint8_t _c
     }
 
     // find the maximum time delay for all potential sensors
-    uint16_t maxTimeDelay_ms = MAX(_frontend->_hgtDelay_ms ,
-            MAX(_frontend->_flowDelay_ms ,
-                MAX(_frontend->_rngBcnDelay_ms ,
-                    MAX(_frontend->magDelay_ms ,
+    uint16_t maxTimeDelay_ms = MAX(frontend->_hgtDelay_ms ,
+            MAX(frontend->_flowDelay_ms ,
+                MAX(frontend->_rngBcnDelay_ms ,
+                    MAX(frontend->magDelay_ms ,
                         (uint16_t)(EKF_TARGET_DT_MS)
                                   ))));
 
     // GPS sensing can have large delays and should not be included if disabled
-    if (_frontend->_fusionModeGPS != 3) {
+    if (frontend->_fusionModeGPS != 3) {
         // Wait for the configuration of all GPS units to be confirmed. Until this has occurred the GPS driver cannot provide a correct time delay
         float gps_delay_sec = 0;
         if (!AP::gps().get_lag(gps_delay_sec)) {
@@ -88,7 +96,7 @@ bool NavEKF3_core::setup_core(NavEKF3 *_frontend, uint8_t _imu_index, uint8_t _c
 
     // airspeed sensing can have large delays and should not be included if disabled
     if (_ahrs->airspeed_sensor_enabled()) {
-        maxTimeDelay_ms = MAX(maxTimeDelay_ms , _frontend->tasDelay_ms);
+        maxTimeDelay_ms = MAX(maxTimeDelay_ms , frontend->tasDelay_ms);
     }
 
     // calculate the IMU buffer length required to accommodate the maximum delay with some allowance for jitter
@@ -98,13 +106,13 @@ bool NavEKF3_core::setup_core(NavEKF3 *_frontend, uint8_t _imu_index, uint8_t _c
     // with the worst case delay from current time to ekf fusion time
     // allow for worst case 50% extension of the ekf fusion time horizon delay due to timing jitter
     uint16_t ekf_delay_ms = maxTimeDelay_ms + (int)(ceilf((float)maxTimeDelay_ms * 0.5f));
-    obs_buffer_length = (ekf_delay_ms / _frontend->sensorIntervalMin_ms) + 1;
+    obs_buffer_length = (ekf_delay_ms / frontend->sensorIntervalMin_ms) + 1;
 
     // limit to be no longer than the IMU buffer (we can't process data faster than the EKF prediction rate)
     obs_buffer_length = MIN(obs_buffer_length,imu_buffer_length);
 
     // calculate buffer size for optical flow data
-    const uint8_t flow_buffer_length = MIN((ekf_delay_ms / _frontend->flowIntervalMin_ms) + 1, imu_buffer_length);
+    const uint8_t flow_buffer_length = MIN((ekf_delay_ms / frontend->flowIntervalMin_ms) + 1, imu_buffer_length);
 
     if(!storedGPS.init(obs_buffer_length)) {
         return false;
@@ -127,6 +135,9 @@ bool NavEKF3_core::setup_core(NavEKF3 *_frontend, uint8_t _imu_index, uint8_t _c
     if(!storedWheelOdm.init(imu_buffer_length)) { // initialise to same length of IMU to allow for multiple wheel sensors
         return false;
     }
+    if(!storedYawAng.init(obs_buffer_length)) {
+        return false;
+    }
     // Note: the use of dual range finders potentially doubles the amount of data to be stored
     if(!storedRange.init(MIN(2*obs_buffer_length , imu_buffer_length))) {
         return false;
@@ -141,7 +152,7 @@ bool NavEKF3_core::setup_core(NavEKF3 *_frontend, uint8_t _imu_index, uint8_t _c
     if(!storedOutput.init(imu_buffer_length)) {
         return false;
     }
-    gcs().send_text(MAV_SEVERITY_INFO, "EKF3 IMU%u buffers, IMU=%u, OBS=%u, OF=%u, dt=%6.4f",
+    gcs().send_text(MAV_SEVERITY_INFO, "EKF3 IMU%u buffers IMU=%u OBS=%u OF=%u, dt=%.4f",
                     (unsigned)imu_index,
                     (unsigned)imu_buffer_length,
                     (unsigned)obs_buffer_length,
@@ -206,7 +217,7 @@ void NavEKF3_core::InitialiseVariables()
     lastKnownPositionNE.zero();
     prevTnb.zero();
     memset(&P[0][0], 0, sizeof(P));
-    memset(&nextP[0][0], 0, sizeof(nextP));
+    memset(common, 0, sizeof(*common));
     flowDataValid = false;
     rangeDataToFuse  = false;
     Popt = 0.0f;
@@ -289,6 +300,8 @@ void NavEKF3_core::InitialiseVariables()
     imuDataDownSampledNew.delVel.zero();
     imuDataDownSampledNew.delAngDT = 0.0f;
     imuDataDownSampledNew.delVelDT = 0.0f;
+    imuDataDownSampledNew.gyro_index = gyro_index_active;
+    imuDataDownSampledNew.accel_index = accel_index_active;
     runUpdates = false;
     framesSincePredict = 0;
     gpsYawResetRequest = false;
@@ -360,6 +373,11 @@ void NavEKF3_core::InitialiseVariables()
     usingWheelSensors = false;
     wheelOdmMeasTime_ms = 0;
 
+    // yaw sensor fusion
+    yawMeasTime_ms = 0;
+    memset(&yawAngDataNew, 0, sizeof(yawAngDataNew));
+    memset(&yawAngDataDelayed, 0, sizeof(yawAngDataDelayed));
+
     // zero data buffers
     storedIMU.reset();
     storedGPS.reset();
@@ -401,6 +419,7 @@ void NavEKF3_core::InitialiseVariablesMag()
     quatAtLastMagReset = stateStruct.quat;
     magFieldLearned = false;
     storedMag.reset();
+    storedYawAng.reset();
 }
 
 // Initialise the states from accelerometer and magnetometer data (if present)
@@ -409,6 +428,9 @@ bool NavEKF3_core::InitialiseFilterBootstrap(void)
 {
     // If we are a plane and don't have GPS lock then don't initialise
     if (assume_zero_sideslip() && AP::gps().status() < AP_GPS::GPS_OK_FIX_3D) {
+        hal.util->snprintf(prearm_fail_string,
+                    sizeof(prearm_fail_string),
+                    "EKF3 init failure: No GPS lock");
         statesInitialised = false;
         return false;
     }
@@ -441,7 +463,7 @@ bool NavEKF3_core::InitialiseFilterBootstrap(void)
     Vector3f initAccVec;
 
     // TODO we should average accel readings over several cycles
-    initAccVec = AP::ins().get_accel(imu_index);
+    initAccVec = AP::ins().get_accel(accel_index_active);
 
     // normalise the acceleration vector
     float pitch=0, roll=0;
@@ -485,6 +507,13 @@ bool NavEKF3_core::InitialiseFilterBootstrap(void)
 
     // set to true now that states have be initialised
     statesInitialised = true;
+
+    // reset inactive biases
+    for (uint8_t i=0; i<INS_MAX_INSTANCES; i++) {
+        inactiveBias[i].gyro_bias.zero();
+        inactiveBias[i].accel_bias.zero();
+    }
+
     gcs().send_text(MAV_SEVERITY_INFO, "EKF3 IMU%u initialised",(unsigned)imu_index);
 
     // we initially return false to wait for the IMU buffer to fill
@@ -544,6 +573,12 @@ void NavEKF3_core::CovarianceInit()
 // Update Filter States - this should be called whenever new IMU data is available
 void NavEKF3_core::UpdateFilter(bool predict)
 {
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    // fill the common variables with NaN, so we catch any cases in
+    // SITL where they are used without initialisation
+    fill_nanf((float *)common, sizeof(*common)/sizeof(float));
+#endif
+
     // Set the flag to indicate to the filter that the front-end has given permission for a new state prediction cycle to be started
     startPredictEnabled = predict;
 
@@ -554,7 +589,7 @@ void NavEKF3_core::UpdateFilter(bool predict)
 
     // start the timer used for load measurement
 #if EK3_DISABLE_INTERRUPTS
-    irqstate_t istate = irqsave();
+    void *istate = hal.scheduler->disable_interrupts_save();
 #endif
     hal.util->perf_begin(_perf_UpdateFilter);
 
@@ -574,7 +609,7 @@ void NavEKF3_core::UpdateFilter(bool predict)
         // Predict the covariance growth
         CovariancePrediction();
 
-        // Update states using  magnetometer data
+        // Update states using  magnetometer or external yaw sensor data
         SelectMagFusion();
 
         // Update states using GPS and altimeter data
@@ -605,18 +640,18 @@ void NavEKF3_core::UpdateFilter(bool predict)
     // stop the timer used for load measurement
     hal.util->perf_end(_perf_UpdateFilter);
 #if EK3_DISABLE_INTERRUPTS
-    irqrestore(istate);
+    hal.scheduler->restore_interrupts(istate);
 #endif
 }
 
-void NavEKF3_core::correctDeltaAngle(Vector3f &delAng, float delAngDT)
+void NavEKF3_core::correctDeltaAngle(Vector3f &delAng, float delAngDT, uint8_t gyro_index)
 {
-    delAng -= stateStruct.gyro_bias * (delAngDT / dtEkfAvg);
+    delAng -= inactiveBias[gyro_index].gyro_bias * (delAngDT / dtEkfAvg);
 }
 
-void NavEKF3_core::correctDeltaVelocity(Vector3f &delVel, float delVelDT)
+void NavEKF3_core::correctDeltaVelocity(Vector3f &delVel, float delVelDT, uint8_t accel_index)
 {
-    delVel -= stateStruct.accel_bias * (delVelDT / dtEkfAvg);
+    delVel -= inactiveBias[accel_index].accel_bias * (delVelDT / dtEkfAvg);
 }
 
 /*
@@ -704,8 +739,8 @@ void NavEKF3_core::calcOutputStates()
     // apply corrections to the IMU data
     Vector3f delAngNewCorrected = imuDataNew.delAng;
     Vector3f delVelNewCorrected = imuDataNew.delVel;
-    correctDeltaAngle(delAngNewCorrected, imuDataNew.delAngDT);
-    correctDeltaVelocity(delVelNewCorrected, imuDataNew.delVelDT);
+    correctDeltaAngle(delAngNewCorrected, imuDataNew.delAngDT, imuDataNew.gyro_index);
+    correctDeltaVelocity(delVelNewCorrected, imuDataNew.delVelDT, imuDataNew.accel_index);
 
     // apply corrections to track EKF solution
     Vector3f delAng = delAngNewCorrected + delAngCorrection;

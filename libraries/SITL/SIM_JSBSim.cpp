@@ -13,7 +13,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 /*
-  simulator connector for ardupilot version of JSBSim
+  simulator connector for JSBSim
 */
 
 #include "SIM_JSBSim.h"
@@ -36,8 +36,8 @@ namespace SITL {
 
 #define DEBUG_JSBSIM 1
 
-JSBSim::JSBSim(const char *home_str, const char *frame_str) :
-    Aircraft(home_str, frame_str),
+JSBSim::JSBSim(const char *frame_str) :
+    Aircraft(frame_str),
     sock_control(false),
     sock_fgfdm(true),
     initialised(false),
@@ -346,7 +346,7 @@ void JSBSim::send_servos(const struct sitl_input &input)
         float ch1 = aileron;
         float ch2 = elevator;
         aileron  = (ch2-ch1)/2.0f;
-        // the minus does away with the need for RC2_REV=-1
+        // the minus does away with the need for RC2_REVERSED=-1
         elevator = -(ch2+ch1)/2.0f;
     } else if (frame == FRAME_VTAIL) {
         // fake a vtail plane

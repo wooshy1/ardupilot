@@ -103,13 +103,16 @@ class generate_apj(Task.Task):
             "magic": "APJFWv1",
             "description": "Firmware for a %s board" % self.env.APJ_BOARD_TYPE,
             "image": base64.b64encode(zlib.compress(img,9)).decode('utf-8'),
-            "build_time": int(time.time()),
             "summary": self.env.BOARD,
             "version": "0.1",
             "image_size": len(img),
             "git_identity": self.generator.bld.git_head_hash(short=True),
             "board_revision": 0
         }
+        if self.env.build_dates:
+            # we omit build_time when we don't have build_dates so that apj
+            # file is idential for same git hash and compiler
+            d["build_time"] = int(time.time())
         apj_file = self.outputs[0].abspath()
         f = open(apj_file, "w")
         f.write(json.dumps(d, indent=4))
@@ -157,10 +160,13 @@ def chibios_firmware(self):
         abin_task.set_run_after(generate_apj_task)
 
     bootloader_bin = self.bld.srcnode.make_node("Tools/bootloaders/%s_bl.bin" % self.env.BOARD)
-    if os.path.exists(bootloader_bin.abspath()) and self.bld.env.HAVE_INTEL_HEX:
-        hex_target = self.bld.bldnode.find_or_declare('bin/' + link_output.change_ext('.hex').name)
-        hex_task = self.create_task('build_intel_hex', src=[bin_target, bootloader_bin], tgt=hex_target)
-        hex_task.set_run_after(generate_bin_task)
+    if self.bld.env.HAVE_INTEL_HEX:
+        if os.path.exists(bootloader_bin.abspath()):
+            hex_target = self.bld.bldnode.find_or_declare('bin/' + link_output.change_ext('.hex').name)
+            hex_task = self.create_task('build_intel_hex', src=[bin_target, bootloader_bin], tgt=hex_target)
+            hex_task.set_run_after(generate_bin_task)
+        else:
+            print("Not embedding bootloader; %s does not exist" % bootloader_bin)
 
     if self.env.DEFAULT_PARAMETERS:
         default_params_task = self.create_task('set_default_parameters',
@@ -179,7 +185,6 @@ def setup_can_build(cfg):
     env.AP_LIBRARIES += [
         'AP_UAVCAN',
         'modules/uavcan/libuavcan/src/**/*.cpp',
-        'modules/uavcan/libuavcan_drivers/stm32/driver/src/*.cpp'
         ]
 
     env.CFLAGS += ['-DUAVCAN_STM32_CHIBIOS=1',
@@ -199,7 +204,6 @@ def setup_can_build(cfg):
 
     env.INCLUDES += [
         cfg.srcnode.find_dir('modules/uavcan/libuavcan/include').abspath(),
-        cfg.srcnode.find_dir('modules/uavcan/libuavcan_drivers/stm32/driver/include').abspath()
         ]
     cfg.get_board().with_uavcan = True
 
@@ -354,7 +358,7 @@ def build(bld):
         common_src += [bld.bldnode.find_or_declare('ap_romfs_embedded.h')]
     ch_task = bld(
         # build libch.a from ChibiOS sources and hwdef.h
-        rule="BUILDDIR='${BUILDDIR_REL}' CHIBIOS='${CH_ROOT_REL}' AP_HAL=${AP_HAL_REL} ${CHIBIOS_BUILD_FLAGS} ${CHIBIOS_BOARD_NAME} '${MAKE}' lib -f '${BOARD_MK}'",
+        rule="BUILDDIR='${BUILDDIR_REL}' CHIBIOS='${CH_ROOT_REL}' AP_HAL=${AP_HAL_REL} ${CHIBIOS_BUILD_FLAGS} ${CHIBIOS_BOARD_NAME} '${MAKE}' -j%u lib -f '${BOARD_MK}'" % bld.options.jobs,
         group='dynamic_sources',
         source=common_src,
         target=bld.bldnode.find_or_declare('modules/ChibiOS/libch.a')
@@ -363,6 +367,15 @@ def build(bld):
 
     bld.env.LIB += ['ch']
     bld.env.LIBPATH += ['modules/ChibiOS/']
-    wraplist = ['strerror_r', 'fclose', 'freopen', 'fread', 'fprintf', 'sscanf', 'snprintf']
+    # list of functions that will be wrapped to move them out of libc into our
+    # own code note that we also include functions that we deliberately don't
+    # implement anywhere (the FILE* functions). This allows us to get link
+    # errors if we accidentially try to use one of those functions either
+    # directly or via another libc call
+    wraplist = ['sscanf', 'fprintf', 'snprintf', 'vsnprintf','vasprintf','asprintf','vprintf','scanf',
+                'fiprintf','printf',
+                'fopen', 'fread', 'fflush', 'fwrite', 'fread', 'fputs', 'fgets',
+                'clearerr', 'fseek', 'ferror', 'fclose', 'tmpfile', 'getc', 'ungetc', 'feof',
+                'ftell', 'freopen', 'remove', 'vfprintf', 'fscanf' ]
     for w in wraplist:
         bld.env.LINKFLAGS += ['-Wl,--wrap,%s' % w]

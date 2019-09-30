@@ -24,7 +24,7 @@ void Copter::heli_init()
 void Copter::check_dynamic_flight(void)
 {
     if (motors->get_spool_state() != AP_Motors::SpoolState::THROTTLE_UNLIMITED ||
-        control_mode == LAND || (control_mode==RTL && mode_rtl.state() == RTL_Land) || (control_mode == AUTO && mode_auto.mode() == Auto_Land)) {
+        control_mode == Mode::Number::LAND || (control_mode==Mode::Number::RTL && mode_rtl.state() == RTL_Land) || (control_mode == Mode::Number::AUTO && mode_auto.mode() == Auto_Land)) {
         heli_dynamic_flight_counter = 0;
         heli_flags.dynamic_flight = false;
         return;
@@ -94,21 +94,21 @@ void Copter::update_heli_control_dynamics(void)
 void Copter::heli_update_landing_swash()
 {
     switch (control_mode) {
-        case ACRO:
-        case STABILIZE:
-        case DRIFT:
-        case SPORT:
+        case Mode::Number::ACRO:
+        case Mode::Number::STABILIZE:
+        case Mode::Number::DRIFT:
+        case Mode::Number::SPORT:
             // manual modes always uses full swash range
             motors->set_collective_for_landing(false);
             break;
 
-        case LAND:
+        case Mode::Number::LAND:
             // landing always uses limit swash range
             motors->set_collective_for_landing(true);
             break;
 
-        case RTL:
-        case SMART_RTL:
+        case Mode::Number::RTL:
+        case Mode::Number::SMART_RTL:
             if (mode_rtl.state() == RTL_Land) {
                 motors->set_collective_for_landing(true);
             }else{
@@ -116,7 +116,7 @@ void Copter::heli_update_landing_swash()
             }
             break;
 
-        case AUTO:
+        case Mode::Number::AUTO:
             if (mode_auto.mode() == Auto_Land) {
                 motors->set_collective_for_landing(true);
             }else{
@@ -146,7 +146,7 @@ void Copter::heli_update_rotor_speed_targets()
     }
     switch (rsc_control_mode) {
         case ROTOR_CONTROL_MODE_SPEED_PASSTHROUGH:
-            // pass through pilot desired rotor speed if control input is higher than 10, creating a deadband at the bottom
+            // pass through pilot desired rotor speed from the RC
             if (motors->get_interlock()) {
                 motors->set_desired_rotor_speed(rsc_control_deglitched);
             } else {
@@ -156,9 +156,14 @@ void Copter::heli_update_rotor_speed_targets()
         case ROTOR_CONTROL_MODE_SPEED_SETPOINT:
         case ROTOR_CONTROL_MODE_OPEN_LOOP_POWER_OUTPUT:
         case ROTOR_CONTROL_MODE_CLOSED_LOOP_POWER_OUTPUT:
-            // pass setpoint through as desired rotor speed, this is almost pointless as the Setpoint serves no function in this mode
-            // other than being used to create a crude estimate of rotor speed
+            // pass setpoint through as desired rotor speed. Needs work, this is pointless as it is
+            // not used by closed loop control. Being used as a catch-all for other modes regardless
+            // of whether or not they actually use it
+            // set rpm from rotor speed sensor
             if (motors->get_interlock()) {
+#if RPM_ENABLED == ENABLED
+                motors->set_rpm(rpm_sensor.get_rpm(0));
+#endif
                 motors->set_desired_rotor_speed(motors->get_rsc_setpoint());
             }else{
                 motors->set_desired_rotor_speed(0.0f);

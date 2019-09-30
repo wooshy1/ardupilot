@@ -17,7 +17,6 @@
 #include <AP_HAL/AP_HAL.h>
 #include "ch.h"
 #include "hal.h"
-#include <AP_Common/Semaphore.h>
 
 #if HAL_USE_ADC == TRUE && !defined(HAL_DISABLE_ADC_DRIVER)
 
@@ -35,6 +34,8 @@ extern AP_IOMCU iomcu;
 #define CHIBIOS_ADC_MAVLINK_DEBUG 0
 #endif
 
+// MAVLink is included as we send a mavlink message as part of debug,
+// and also use the MAV_POWER flags below in update_power_flags
 #include <GCS_MAVLink/GCS_MAVLink.h>
 
 #define ANLOGIN_DEBUGGING 0
@@ -189,7 +190,7 @@ void AnalogIn::adccallback(ADCDriver *adcp)
 {
     const adcsample_t *buffer = samples;
 
-    cacheBufferInvalidate(buffer, sizeof(adcsample_t)*ADC_DMA_BUF_DEPTH*ADC_GRP1_NUM_CHANNELS);
+    stm32_cacheBufferInvalidate(buffer, sizeof(adcsample_t)*ADC_DMA_BUF_DEPTH*ADC_GRP1_NUM_CHANNELS);
     for (uint8_t i = 0; i < ADC_DMA_BUF_DEPTH; i++) {
         for (uint8_t j = 0; j < ADC_GRP1_NUM_CHANNELS; j++) { 
             sample_sum[j] += *buffer++;
@@ -297,6 +298,11 @@ void AnalogIn::_timer_tick(void)
             // record the Vcc value for later use in
             // voltage_average_ratiometric()
             _board_voltage = buf_adc[i] * pin_config[i].scaling;
+        }
+#endif
+#ifdef FMU_SERVORAIL_ADC_CHAN
+        if (pin_config[i].channel == FMU_SERVORAIL_ADC_CHAN) {
+           _servorail_voltage = buf_adc[i] * pin_config[i].scaling;
         }
 #endif
     }

@@ -211,15 +211,23 @@ uint32_t get_fattime()
 
 #if !defined(NO_FASTBOOT)
 
-// get RTC backup register
-uint32_t get_rtc_backup(uint8_t n)
+// get RTC backup registers starting at given idx
+void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
 {
-    return ((__IO uint32_t *)&RTC->BKP0R)[n];
+    while (n--) {
+#if defined(STM32F1)
+        __IO uint32_t *dr = (__IO uint32_t *)&BKP->DR1;
+        *v++ = (dr[n/2]&0xFFFF) | (dr[n/2+1]<<16);
+#else
+        *v++ = ((__IO uint32_t *)&RTC->BKP0R)[idx++];
+#endif
+    }
 }
 
-// set RTC backup register 0
-void set_rtc_backup(uint8_t n, uint32_t v)
+// set n RTC backup registers starting at given idx
+void set_rtc_backup(uint8_t idx, const uint32_t *v, uint8_t n)
 {
+#if !defined(STM32F1)
     if ((RCC->BDCR & RCC_BDCR_RTCEN) == 0) {
         RCC->BDCR |= STM32_RTCSEL;
         RCC->BDCR |= RCC_BDCR_RTCEN;
@@ -229,29 +237,42 @@ void set_rtc_backup(uint8_t n, uint32_t v)
 #else
     PWR->CR1 |= PWR_CR1_DBP;
 #endif
-    ((__IO uint32_t *)&RTC->BKP0R)[n] = v;
+#endif
+    while (n--) {
+#if defined(STM32F1)
+        __IO uint32_t *dr = (__IO uint32_t *)&BKP->DR1;
+        dr[n/2] =   (*v) & 0xFFFF;
+        dr[n/2+1] = (*v) >> 16;
+#else
+        ((__IO uint32_t *)&RTC->BKP0R)[idx++] = *v++;
+#endif
+    }
 }
 
 // see if RTC registers is setup for a fast reboot
 enum rtc_boot_magic check_fast_reboot(void)
 {
-    return (enum rtc_boot_magic)get_rtc_backup(0);
+    uint32_t v;
+    get_rtc_backup(0, &v, 1);
+    return (enum rtc_boot_magic)v;
 }
 
 // set RTC register for a fast reboot
 void set_fast_reboot(enum rtc_boot_magic v)
 {
-    set_rtc_backup(0, v);
+    uint32_t vv = (uint32_t)v;
+    set_rtc_backup(0, &vv, 1);
 }
 
 #else // NO_FASTBOOT
 
-// set RTC backup register 1
-void set_rtc_backup(uint8_t n, uint32_t v)
+// set n RTC backup registers starting at given idx
+void set_rtc_backup(uint8_t idx, const uint32_t *v, uint8_t n)
 {
 }
 
-uint32_t get_rtc_backup(uint8_t n)
+// get RTC backup registers starting at given idx
+void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
 {
     return 0;
 }
@@ -320,3 +341,13 @@ iomode_t palReadLineMode(ioline_t line)
     return ret;
 }
 #endif
+
+void stm32_cacheBufferInvalidate(const void *p, size_t size)
+{
+    cacheBufferInvalidate(p, size);
+}
+
+void stm32_cacheBufferFlush(const void *p, size_t size)
+{
+    cacheBufferFlush(p, size);
+}

@@ -25,13 +25,11 @@
 #include <AP_Compass/AP_Compass.h>
 #include <AP_Airspeed/AP_Airspeed.h>
 #include <AP_Beacon/AP_Beacon.h>
-#include <AP_GPS/AP_GPS.h>
 #include <AP_InertialSensor/AP_InertialSensor.h>
-#include <AP_Baro/AP_Baro.h>
 #include <AP_Param/AP_Param.h>
-#include <AP_Common/Semaphore.h>
 #include <AP_Common/Location.h>
 
+class AP_NMEA_Output;
 class OpticalFlow;
 #define AP_AHRS_TRIM_LIMIT 10.0f        // maximum trim angle in degrees
 #define AP_AHRS_RP_P_MIN   0.05f        // minimum value for AHRS_RP_P parameter
@@ -87,9 +85,7 @@ public:
     }
 
     // init sets up INS board orientation
-    virtual void init() {
-        update_orientation();
-    };
+    virtual void init();
 
     // Accessors
     void set_fly_forward(bool b) {
@@ -169,16 +165,8 @@ public:
         _airspeed = airspeed;
     }
 
-    void set_beacon(AP_Beacon *beacon) {
-        _beacon = beacon;
-    }
-
     const AP_Airspeed *get_airspeed(void) const {
         return _airspeed;
-    }
-
-    const AP_Beacon *get_beacon(void) const {
-        return _beacon;
     }
 
     // get the index of the current primary accelerometer sensor
@@ -225,20 +213,27 @@ public:
         return false;
     }
 
+    // see if EKF lane switching is possible to avoid EKF failsafe
+    virtual void check_lane_switch(void) {}
+    
     // Euler angles (radians)
     float roll;
     float pitch;
     float yaw;
+
+    float get_roll() const { return roll; }
+    float get_pitch() const { return pitch; }
+    float get_yaw() const { return yaw; }
 
     // integer Euler angles (Degrees * 100)
     int32_t roll_sensor;
     int32_t pitch_sensor;
     int32_t yaw_sensor;
 
-    // return a smoothed and corrected gyro vector
+    // return a smoothed and corrected gyro vector in radians/second
     virtual const Vector3f &get_gyro(void) const = 0;
 
-    // return a smoothed and corrected gyro vector using the latest ins data (which may not have been consumed by the EKF yet)
+    // return a smoothed and corrected gyro vector in radians/second using the latest ins data (which may not have been consumed by the EKF yet)
     Vector3f get_gyro_latest(void) const;
 
     // return the current estimate of the gyro drift
@@ -280,6 +275,7 @@ public:
     // otherwise false. This call fills in lat, lng and alt
     virtual bool get_position(struct Location &loc) const = 0;
 
+    // get latest altitude estimate above ground level in meters and validity flag
     virtual bool get_hagl(float &height) const { return false; }
 
     // return a wind estimation vector, in m/s
@@ -300,12 +296,7 @@ public:
     }
 
     // get apparent to true airspeed ratio
-    float get_EAS2TAS(void) const {
-        if (_airspeed) {
-            return _airspeed->get_EAS2TAS();
-        }
-        return 1.0f;
-    }
+    float get_EAS2TAS(void) const;
 
     // return true if airspeed comes from an airspeed sensor, as
     // opposed to an IMU estimate
@@ -591,6 +582,7 @@ public:
     }
 
 protected:
+    void update_nmea_out();
 
     // multi-thread access support
     HAL_Semaphore_Recursive _rsem;
@@ -649,9 +641,6 @@ protected:
     // pointer to airspeed object, if available
     AP_Airspeed     * _airspeed;
 
-    // pointer to beacon object, if available
-    AP_Beacon     * _beacon;
-
     // time in microseconds of last compass update
     uint32_t _compass_last_update;
 
@@ -699,6 +688,7 @@ protected:
 private:
     static AP_AHRS *_singleton;
 
+    AP_NMEA_Output* _nmea_out;
 };
 
 #include "AP_AHRS_DCM.h"

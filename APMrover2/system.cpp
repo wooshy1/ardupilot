@@ -44,7 +44,7 @@ void Rover::init_ardupilot()
     serial_manager.init();
 
     // setup first port early to allow BoardConfig to report errors
-    gcs().chan(0).setup_uart(serial_manager, AP_SerialManager::SerialProtocol_MAVLink, 0);
+    gcs().setup_console();
 
     // Register mavlink_delay_cb, which will run anytime you have
     // more than 5ms remaining in your call to hal.scheduler->delay
@@ -60,6 +60,8 @@ void Rover::init_ardupilot()
     g2.gripper.init();
 #endif
 
+    g2.fence.init();
+
     // initialise notify system
     notify.init();
     notify_mode(control_mode);
@@ -73,13 +75,13 @@ void Rover::init_ardupilot()
 
     g2.airspeed.init();
 
-    g2.windvane.init();
+    g2.windvane.init(serial_manager);
 
     // init baro before we start the GCS, so that the CLI baro test works
     barometer.init();
 
     // setup telem slots with serial ports
-    gcs().setup_uarts(serial_manager);
+    gcs().setup_uarts();
 
 #if OSD_ENABLED == ENABLED
     osd.init();
@@ -127,7 +129,7 @@ void Rover::init_ardupilot()
 
 #if MOUNT == ENABLED
     // initialise camera mount
-    camera_mount.init(serial_manager);
+    camera_mount.init();
 #endif
 
     /*
@@ -136,11 +138,11 @@ void Rover::init_ardupilot()
      */
     hal.scheduler->register_timer_failsafe(failsafe_check_static, 1000);
 
-    // give AHRS the range beacon sensor
-    ahrs.set_beacon(&g2.beacon);
-
     // initialize SmartRTL
     g2.smart_rtl.init();
+
+    // initialise object avoidance
+    g2.oa.init();
 
     startup_ground();
 
@@ -153,11 +155,17 @@ void Rover::init_ardupilot()
     // initialise rc channels
     rc().init();
 
+    rover.g2.sailboat.init();
+
     // disable safety if requested
     BoardConfig.init_safety();
 
     // flag that initialisation has completed
     initialised = true;
+
+#if AP_PARAM_KEY_DUMP
+    AP_Param::show_all(hal.console, true);
+#endif
 }
 
 //*********************************************************************************
@@ -263,6 +271,7 @@ bool Rover::set_mode(Mode &new_mode, mode_reason_t reason)
 
     control_mode_reason = reason;
     logger.Write_Mode(control_mode->mode_number(), control_mode_reason);
+    gcs().send_message(MSG_HEARTBEAT);
 
     notify_mode(control_mode);
     return true;
@@ -310,57 +319,6 @@ uint8_t Rover::check_digital_pin(uint8_t pin)
 bool Rover::should_log(uint32_t mask)
 {
     return logger.should_log(mask);
-}
-
-/*
-  update AHRS soft arm state and log as needed
- */
-void Rover::change_arm_state(void)
-{
-    Log_Write_Arm_Disarm();
-    update_soft_armed();
-}
-
-/*
-  arm motors
- */
-bool Rover::arm_motors(AP_Arming::Method method)
-{
-    if (!arming.arm(method)) {
-        AP_Notify::events.arming_failed = true;
-        return false;
-    }
-
-    // Set the SmartRTL home location. If activated, SmartRTL will ultimately try to land at this point
-    g2.smart_rtl.set_home(true);
-
-    // initialize simple mode heading
-    rover.mode_simple.init_heading();
-
-    // save home heading for use in sail vehicles
-    rover.g2.windvane.record_home_heading();
-
-    change_arm_state();
-    return true;
-}
-
-/*
-  disarm motors
- */
-bool Rover::disarm_motors(void)
-{
-    if (!arming.disarm()) {
-        return false;
-    }
-    if (control_mode != &mode_auto) {
-        // reset the mission on disarm if we are not in auto
-        mode_auto.mission.reset();
-    }
-
-    // only log if disarming was successful
-    change_arm_state();
-
-    return true;
 }
 
 // returns true if vehicle is a boat

@@ -22,7 +22,6 @@
 #include <AP_RangeFinder/AP_RangeFinder.h>
 
 #define PROXIMITY_MAX_INSTANCES             1   // Maximum number of proximity sensor instances available on this platform
-#define PROXIMITY_YAW_CORRECTION_DEFAULT    22  // default correction for sensor error in yaw
 #define PROXIMITY_MAX_IGNORE                6   // up to six areas can be ignored
 #define PROXIMITY_MAX_DIRECTION 8
 #define PROXIMITY_SENSOR_ID_START 10
@@ -50,6 +49,7 @@ public:
         Proximity_Type_TRTOWEREVO = 6,
         Proximity_Type_SITL    = 10,
         Proximity_Type_MorseSITL = 11,
+        Proximity_Type_AirSimSITL = 12,
     };
 
     enum Proximity_Status {
@@ -113,7 +113,7 @@ public:
     float distance_min() const;
 
     // handle mavlink DISTANCE_SENSOR messages
-    void handle_msg(mavlink_message_t *msg);
+    void handle_msg(const mavlink_message_t &msg);
 
     // The Proximity_State structure is filled in by the backend driver
     struct Proximity_State {
@@ -159,5 +159,8 @@ private:
     AP_Int8 _ignore_width_deg[PROXIMITY_MAX_IGNORE];    // width of beam (in degrees) that should be ignored
 
     void detect_instance(uint8_t instance);
-    void update_instance(uint8_t instance);  
+};
+
+namespace AP {
+    AP_Proximity *proximity();
 };

@@ -36,8 +36,8 @@ public:
 
 #ifdef ENABLE_HEAP
     // heap functions, note that a heap once alloc'd cannot be dealloc'd
-    virtual void *allocate_heap_memory(size_t size);
-    virtual void *heap_realloc(void *heap, void *ptr, size_t new_size);
+    virtual void *allocate_heap_memory(size_t size) override;
+    virtual void *heap_realloc(void *heap, void *ptr, size_t new_size) override;
 #endif // ENABLE_HEAP
 
     /*
@@ -68,24 +68,6 @@ public:
     // return true if the reason for the reboot was a watchdog reset
     bool was_watchdog_reset() const override;
 
-    // return true if safety was off and this was a watchdog reset
-    bool was_watchdog_safety_off() const override;
-
-    // return true if vehicle was armed and this was a watchdog reset
-    bool was_watchdog_armed() const override;
-
-    // backup home state for restore on watchdog reset
-    void set_backup_home_state(int32_t lat, int32_t lon, int32_t alt_cm) const override;
-
-    // backup home state for restore on watchdog reset
-    bool get_backup_home_state(int32_t &lat, int32_t &lon, int32_t &alt_cm) const override;
-
-    // backup atttude for restore on watchdog reset
-    void set_backup_attitude(int32_t roll_cd, int32_t pitch_cd, int32_t yaw_cd) const override;
-
-    // get watchdog reset attitude
-    bool get_backup_attitude(int32_t &roll_cd, int32_t &pitch_cd, int32_t &yaw_cd) const override;
-    
 private:
 #ifdef HAL_PWM_ALARM
     struct ToneAlarmPwmGroup {
@@ -104,7 +86,6 @@ private:
         uint16_t count;
         float sum;
         uint32_t last_update_ms;
-        uint8_t duty_counter;
         float output;
     } heater;
 #endif
@@ -118,7 +99,7 @@ private:
       get system clock in UTC microseconds
      */
     uint64_t get_hw_rtc() const override;
-#ifndef HAL_NO_FLASH_SUPPORT
+#if !defined(HAL_NO_FLASH_SUPPORT) && !defined(HAL_NO_ROMFS_SUPPORT)
     bool flash_bootloader() override;
 #endif
 
@@ -126,6 +107,7 @@ private:
     static memory_heap_t scripting_heap;
 #endif // ENABLE_HEAP
 
-    void set_soft_armed(const bool b) override;
-
+    // stm32F4 and F7 have 20 total RTC backup registers. We use the first one for boot type
+    // flags, so 19 available for persistent data
+    static_assert(sizeof(persistent_data) <= 19*4, "watchdog persistent data too large");
 };

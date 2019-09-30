@@ -4,6 +4,11 @@
 void Sub::read_barometer()
 {
     barometer.update();
+    // If we are reading a positive altitude, the sensor needs calibration
+    // Even a few meters above the water we should have no significant depth reading
+    if(!motors.armed() && barometer.get_altitude() > 0) {
+        barometer.update_calibration();
+    }
 
     if (ap.depth_sensor_present) {
         sensor_health.depth = barometer.healthy(depth_sensor_idx);
@@ -79,21 +84,6 @@ void Sub::rpm_update(void)
     }
 }
 #endif
-
-/*
-  initialise compass's location used for declination
- */
-void Sub::init_compass_location()
-{
-    // update initial location used for declination
-    if (!ap.compass_init_location) {
-        Location loc;
-        if (ahrs.get_position(loc)) {
-            compass.set_initial_location(loc.lat, loc.lng);
-            ap.compass_init_location = true;
-        }
-    }
-}
 
 // initialise optical flow sensor
 #if OPTFLOW == ENABLED

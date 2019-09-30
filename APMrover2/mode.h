@@ -104,6 +104,10 @@ public:
     // return distance (in meters) to destination
     virtual float get_distance_to_destination() const { return 0.0f; }
 
+    // return desired location (used in Guided, Auto, RTL, etc)
+    // return true on success, false if there is no valid destination
+    virtual bool get_desired_location(Location& destination) const WARN_IF_UNUSED { return false; }
+
     // set desired location (used in Guided, Auto)
     //   next_leg_bearing_cd should be heading to the following waypoint (used to slow the vehicle in order to make the turn)
     virtual bool set_desired_location(const struct Location& destination, float next_leg_bearing_cd = AR_WPNAV_HEADING_UNKNOWN) WARN_IF_UNUSED;
@@ -182,9 +186,6 @@ protected:
     //  reversed should be true if the vehicle is intentionally backing up which allows the pilot to increase the backing up speed by pulling the throttle stick down
     float calc_speed_nudge(float target_speed, bool reversed);
 
-    // calculate vehicle stopping location using current location, velocity and maximum acceleration
-    void calc_stopping_location(Location& stopping_loc);
-
 protected:
 
     // decode pilot steering and throttle inputs and return in steer_out and throttle_out arguments
@@ -252,7 +253,8 @@ public:
     // return distance (in meters) to destination
     float get_distance_to_destination() const override;
 
-    // set desired location
+    // get or set desired location
+    bool get_desired_location(Location& destination) const override WARN_IF_UNUSED;
     bool set_desired_location(const struct Location& destination, float next_leg_bearing_cd = AR_WPNAV_HEADING_UNKNOWN) override WARN_IF_UNUSED;
     bool reached_destination() const override;
 
@@ -278,7 +280,8 @@ protected:
         Auto_HeadingAndSpeed,   // turn to a given heading
         Auto_RTL,               // perform RTL within auto mode
         Auto_Loiter,            // perform Loiter within auto mode
-        Auto_Guided             // handover control to external navigation system from within auto mode
+        Auto_Guided,            // handover control to external navigation system from within auto mode
+        Auto_Stop               // stop the vehicle as quickly as possible
     } _submode;
 
 private:
@@ -286,6 +289,7 @@ private:
     bool check_trigger(void);
     bool start_loiter();
     void start_guided(const Location& target_loc);
+    void start_stop();
     void send_guided_position_target();
 
     bool start_command(const AP_Mission::Mission_Command& cmd);
@@ -297,6 +301,8 @@ private:
     bool do_nav_wp(const AP_Mission::Mission_Command& cmd, bool always_stop_at_destination);
     void do_nav_guided_enable(const AP_Mission::Mission_Command& cmd);
     void do_nav_set_yaw_speed(const AP_Mission::Mission_Command& cmd);
+    void do_nav_delay(const AP_Mission::Mission_Command& cmd);
+    bool verify_nav_delay(const AP_Mission::Mission_Command& cmd);
     bool verify_nav_wp(const AP_Mission::Mission_Command& cmd);
     bool verify_RTL();
     bool verify_loiter_unlimited(const AP_Mission::Mission_Command& cmd);
@@ -341,6 +347,10 @@ private:
     // For example in a delay command the condition_start records that start time for the delay
     int32_t condition_start;
 
+    // Delay the next navigation command
+    uint32_t nav_delay_time_max_ms;  // used for delaying the navigation commands
+    uint32_t nav_delay_time_start_ms;
+
 };
 
 
@@ -366,8 +376,11 @@ public:
     // return true if vehicle has reached destination
     bool reached_destination() const override;
 
-    // set desired location, heading and speed
+    // get or set desired location
+    bool get_desired_location(Location& destination) const override WARN_IF_UNUSED;
     bool set_desired_location(const struct Location& destination, float next_leg_bearing_cd = AR_WPNAV_HEADING_UNKNOWN) override WARN_IF_UNUSED;
+
+    // set desired heading and speed
     void set_desired_heading_and_speed(float yaw_angle_cd, float target_speed) override;
 
     // set desired heading-delta, turn-rate and speed
@@ -448,6 +461,9 @@ public:
     float nav_bearing() const override { return _desired_yaw_cd * 0.01f; }
     float crosstrack_error() const override { return 0.0f; }
 
+    // return desired location
+    bool get_desired_location(Location& destination) const override WARN_IF_UNUSED;
+
     // return distance (in meters) to destination
     float get_distance_to_destination() const override { return _distance_to_destination; }
 
@@ -495,6 +511,10 @@ public:
     // attributes of the mode
     bool is_autopilot_mode() const override { return true; }
 
+    // return desired location
+    bool get_desired_location(Location& destination) const override WARN_IF_UNUSED;
+
+    // return distance (in meters) to destination
     float get_distance_to_destination() const override { return _distance_to_destination; }
     bool reached_destination() const override;
 
@@ -518,6 +538,10 @@ public:
     // attributes of the mode
     bool is_autopilot_mode() const override { return true; }
 
+    // return desired location
+    bool get_desired_location(Location& destination) const override WARN_IF_UNUSED;
+
+    // return distance (in meters) to destination
     float get_distance_to_destination() const override { return _distance_to_destination; }
     bool reached_destination() const override { return smart_rtl_state == SmartRTL_StopAtHome; }
 
@@ -596,6 +620,9 @@ public:
     float wp_bearing() const override;
     float nav_bearing() const override { return wp_bearing(); }
     float crosstrack_error() const override { return 0.0f; }
+
+    // return desired location
+    bool get_desired_location(Location& destination) const override WARN_IF_UNUSED { return false; }
 
     // return distance (in meters) to destination
     float get_distance_to_destination() const override;

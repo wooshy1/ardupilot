@@ -74,7 +74,7 @@ def get_default_params(atype, binary):
         util.pexpect_close(sitl)
         sitl = util.start_SITL(binary, model=frame, home=home, speedup=10)
         mavproxy = util.start_MAVProxy_SITL(atype)
-        idx = mavproxy.expect('Saved [0-9]+ parameters to (\S+)')
+        mavproxy.expect('Saved [0-9]+ parameters to (\S+)')
     parmfile = mavproxy.match.group(1)
     dest = buildlogs_path('%s-defaults.parm' % atype)
     shutil.copy(parmfile, dest)
@@ -378,8 +378,10 @@ def run_step(step):
         "use_map": opts.map,
         "valgrind": opts.valgrind,
         "gdb": opts.gdb,
+        "lldb": opts.lldb,
         "gdbserver": opts.gdbserver,
         "breakpoints": opts.breakpoint,
+        "disable_breakpoints": opts.disable_breakpoints,
         "frame": opts.frame,
         "_show_test_timings": opts.show_test_timings,
     }
@@ -722,19 +724,27 @@ if __name__ == "__main__":
                          default=False,
                          action='store_true',
                          help='run ArduPilot binaries under gdbserver')
+    group_sim.add_option("--lldb",
+                         default=False,
+                         action='store_true',
+                         help='run ArduPilot binaries under lldb')
     group_sim.add_option("-B", "--breakpoint",
                          type='string',
                          action="append",
                          default=[],
                          help="add a breakpoint at given location in debugger")
+    group_sim.add_option("--disable-breakpoints",
+                         default=False,
+                         action='store_true',
+                         help="disable all breakpoints before starting")
     parser.add_option_group(group_sim)
 
     opts, args = parser.parse_args()
 
     steps = [
         'prerequisites',
-        'build.All',
         'build.Binaries',
+        'build.All',
         'build.Parameters',
 
         'build.unit_tests',

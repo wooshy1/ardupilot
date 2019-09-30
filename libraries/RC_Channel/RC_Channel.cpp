@@ -35,6 +35,11 @@ extern const AP_HAL::HAL& hal;
 #include <AP_Gripper/AP_Gripper.h>
 #include <AP_LandingGear/AP_LandingGear.h>
 #include <AP_ServoRelayEvents/AP_ServoRelayEvents.h>
+#include <AP_Arming/AP_Arming.h>
+#include <AP_GPS/AP_GPS.h>
+#include <AC_Fence/AC_Fence.h>
+
+#define SWITCH_DEBOUNCE_TIME_MS  200
 
 const AP_Param::GroupInfo RC_Channel::var_info[] = {
     // @Param: MIN
@@ -82,9 +87,9 @@ const AP_Param::GroupInfo RC_Channel::var_info[] = {
     // @Param: OPTION
     // @DisplayName: RC input option
     // @Description: Function assigned to this RC channel
-    // @Values{Copter}: 0:Do Nothing, 2:Flip, 3:Simple Mode, 4:RTL, 5:Save Trim, 7:Save WP, 9:Camera Trigger, 10:RangeFinder, 11:Fence, 13:Super Simple Mode, 14:Acro Trainer, 15:Sprayer, 16:Auto, 17:AutoTune, 18:Land, 19:Gripper, 21:Parachute Enable, 22:Parachute Release, 23:Parachute 3pos, 24:Auto Mission Reset, 25:AttCon Feed Forward, 26:AttCon Accel Limits, 27:Retract Mount, 28:Relay On/Off, 34:Relay2 On/Off, 35:Relay3 On/Off, 36:Relay4 On/Off, 29:Landing Gear, 30:Lost Copter Sound, 31:Motor Emergency Stop, 32:Motor Interlock, 33:Brake, 37:Throw, 38:ADSB-Avoidance, 39:PrecLoiter, 40:Proximity Avoidance, 41:ArmDisarm, 42:SmartRTL, 43:InvertedFlight, 44:Winch Enable, 45:WinchControl, 46:RC Override Enable, 47:User Function 1, 48:User Function 2, 49:User Function 3, 58:Clear Waypoints, 60:ZigZag, 61:ZigZag SaveWP, 62:Compass Learn, 65:GPS Disable, 66:Relay5, 67:Relay6, 68:Stabilize, 69:PosHold, 70:AltHold, 71:FlowHold, 72:Circle, 73:Drift
-    // @Values{Rover}: 0:Do Nothing, 4:RTL, 7:Save WP, 9:Camera Trigger, 16:Auto, 19:Gripper, 28:Relay On/Off, 30:Lost Rover Sound, 31:Motor Emergency Stop, 34:Relay2 On/Off, 35:Relay3 On/Off, 36:Relay4 On/Off, 40:Proximity Avoidance, 41:ArmDisarm, 42:SmartRTL, 46:RC Override Enable, 50:LearnCruise, 51:Manual, 52:Acro, 53:Steering, 54:Hold, 55:Guided, 56:Loiter, 57:Follow, 58:Clear Waypoints, 59:Simple, 62:Compass Learn, 63:Sailboat Tack, 65:GPS Disable, 66:Relay5, 67:Relay6
-    // @Values{Plane}: 0:Do Nothing, 9:Camera Trigger, 28:Relay On/Off, 29:Landing Gear, 34:Relay2 On/Off, 30:Lost Plane Sound, 31:Motor Emergency Stop, 35:Relay3 On/Off, 36:Relay4 On/Off, 41:ArmDisarm, 43:InvertedFlight, 46:RC Override Enable, 58:Clear Waypoints, 62:Compass Learn, 64:Reverse Throttle, 65:GPS Disable, 66:Relay5, 67:Relay6
+    // @Values{Copter}: 0:Do Nothing, 2:Flip, 3:Simple Mode, 4:RTL, 5:Save Trim, 7:Save WP, 9:Camera Trigger, 10:RangeFinder, 11:Fence, 13:Super Simple Mode, 14:Acro Trainer, 15:Sprayer, 16:Auto, 17:AutoTune, 18:Land, 19:Gripper, 21:Parachute Enable, 22:Parachute Release, 23:Parachute 3pos, 24:Auto Mission Reset, 25:AttCon Feed Forward, 26:AttCon Accel Limits, 27:Retract Mount, 28:Relay On/Off, 34:Relay2 On/Off, 35:Relay3 On/Off, 36:Relay4 On/Off, 29:Landing Gear, 30:Lost Copter Sound, 31:Motor Emergency Stop, 32:Motor Interlock, 33:Brake, 37:Throw, 38:ADSB-Avoidance, 39:PrecLoiter, 40:Proximity Avoidance, 41:ArmDisarm, 42:SmartRTL, 43:InvertedFlight, 44:Winch Enable, 45:WinchControl, 46:RC Override Enable, 47:User Function 1, 48:User Function 2, 49:User Function 3, 58:Clear Waypoints, 60:ZigZag, 61:ZigZag SaveWP, 62:Compass Learn, 65:GPS Disable, 66:Relay5, 67:Relay6, 68:Stabilize, 69:PosHold, 70:AltHold, 71:FlowHold, 72:Circle, 73:Drift, 75:SurfaceTrackingUpDown, 100:KillIMU1, 101:KillIMU2
+    // @Values{Rover}: 0:Do Nothing, 4:RTL, 7:Save WP, 9:Camera Trigger, 11:Fence, 16:Auto, 19:Gripper, 24:Auto Mission Reset, 28:Relay On/Off, 30:Lost Rover Sound, 31:Motor Emergency Stop, 34:Relay2 On/Off, 35:Relay3 On/Off, 36:Relay4 On/Off, 40:Proximity Avoidance, 41:ArmDisarm, 42:SmartRTL, 46:RC Override Enable, 50:LearnCruise, 51:Manual, 52:Acro, 53:Steering, 54:Hold, 55:Guided, 56:Loiter, 57:Follow, 58:Clear Waypoints, 59:Simple, 62:Compass Learn, 63:Sailboat Tack, 65:GPS Disable, 66:Relay5, 67:Relay6, 74:Sailboat motoring 3pos, 100:KillIMU1, 101:KillIMU2,207:MainSail
+    // @Values{Plane}: 0:Do Nothing, 4:ModeRTL, 9:Camera Trigger, 16:ModeAuto, 24:Auto Mission Reset, 28:Relay On/Off, 29:Landing Gear, 34:Relay2 On/Off, 30:Lost Plane Sound, 31:Motor Emergency Stop, 35:Relay3 On/Off, 36:Relay4 On/Off, 41:ArmDisarm, 43:InvertedFlight, 46:RC Override Enable, 51:ModeManual, 55:ModeGuided, 58:Clear Waypoints, 62:Compass Learn, 64:Reverse Throttle, 65:GPS Disable, 66:Relay5, 67:Relay6, 72:ModeCircle, 100:KillIMU1, 101:KillIMU2
     // @User: Standard
     AP_GROUPINFO_FRAME("OPTION",  6, RC_Channel, option, 0, AP_PARAM_FRAME_COPTER|AP_PARAM_FRAME_ROVER|AP_PARAM_FRAME_PLANE),
 
@@ -377,15 +382,11 @@ int16_t RC_Channel::stick_mixing(const int16_t servo_in)
 //
 // support for auxillary switches:
 //
-#define MODE_SWITCH_DEBOUNCE_TIME_MS  200
-
-uint32_t RC_Channel::old_switch_positions;
-RC_Channel::modeswitch_state_t RC_Channel::mode_switch_state;
 
 void RC_Channel::reset_mode_switch()
 {
-    mode_switch_state.last_position = -1;
-    mode_switch_state.debounced_position = -1;
+    switch_state.current_position = -1;
+    switch_state.debounce_position = -1;
     read_mode_switch();
 }
 
@@ -405,32 +406,36 @@ void RC_Channel::read_mode_switch()
     else if (pulsewidth < 1750) position = 4;
     else position = 5;
 
-    if (mode_switch_state.last_position == position) {
-        // nothing to do
-        return;
-    }
-
-    const uint32_t tnow_ms = AP_HAL::millis();
-    if (position != mode_switch_state.debounced_position) {
-        mode_switch_state.debounced_position = position;
-        // store time that switch last moved
-        mode_switch_state.last_edge_time_ms = tnow_ms;
-        return;
-    }
-
-    if (tnow_ms - mode_switch_state.last_edge_time_ms < MODE_SWITCH_DEBOUNCE_TIME_MS) {
-        // still in debounce
+    if (!debounce_completed(position)) {
         return;
     }
 
     // set flight mode and simple mode setting
     mode_switch_changed(position);
+}
 
-    // set the last switch position.  This marks the
-    // transition as complete, even if the mode switch actually
-    // failed.  This prevents the vehicle changing modes
-    // unexpectedly some time later.
-    mode_switch_state.last_position = position;
+bool RC_Channel::debounce_completed(int8_t position) 
+{
+    // switch change not detected
+    if (switch_state.current_position == position) {
+        // reset debouncing
+         switch_state.debounce_position = position;
+    } else {
+        // switch change detected
+        const uint32_t tnow_ms = AP_HAL::millis();
+
+        // position not established yet
+        if (switch_state.debounce_position != position) {
+            switch_state.debounce_position = position;
+            switch_state.last_edge_time_ms = tnow_ms;
+        } else if (tnow_ms - switch_state.last_edge_time_ms >= SWITCH_DEBOUNCE_TIME_MS) {
+            // position estabilished; debounce completed
+            switch_state.current_position = position;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 //
@@ -442,8 +447,10 @@ void RC_Channel::init_aux_function(const aux_func_t ch_option, const aux_switch_
 {
     // init channel options
     switch(ch_option) {
+    case AUX_FUNC::FENCE:  
     case AUX_FUNC::RC_OVERRIDE_ENABLE:
     case AUX_FUNC::AVOID_PROXIMITY:
+    case AUX_FUNC::MISSION_RESET:
         do_aux_function(ch_option, ch_flag);
         break;
     // the following functions do not need to be initialised:
@@ -464,6 +471,8 @@ void RC_Channel::init_aux_function(const aux_func_t ch_option, const aux_switch_
     case AUX_FUNC::GRIPPER:
     case AUX_FUNC::SPRAYER:
     case AUX_FUNC::GPS_DISABLE:
+    case AUX_FUNC::KILL_IMU1:
+    case AUX_FUNC::KILL_IMU2:
         do_aux_function(ch_option, ch_flag);
         break;
     default:
@@ -475,36 +484,29 @@ void RC_Channel::init_aux_function(const aux_func_t ch_option, const aux_switch_
     }
 }
 
-void RC_Channel::read_aux()
+/*
+  read an aux channel. Return true if a switch has changed
+ */
+bool RC_Channel::read_aux()
 {
     const aux_func_t _option = (aux_func_t)option.get();
     if (_option == AUX_FUNC::DO_NOTHING) {
         // may wish to add special cases for other "AUXSW" things
         // here e.g. RCMAP_ROLL etc once they become options
-        return;
+        return false;
     }
     aux_switch_pos_t new_position;
     if (!read_3pos_switch(new_position)) {
-        return;
+        return false;
     }
-    const aux_switch_pos_t old_position = old_switch_position();
-    if (new_position == old_position) {
-        debounce.count = 0;
-        return;
-    }
-    if (debounce.new_position != new_position) {
-        debounce.new_position = new_position;
-        debounce.count = 0;
-    }
-    // a value of 2 means we need 3 values in a row with the same
-    // value to activate
-    if (debounce.count++ < 2) {
-        return;
+
+    if (!debounce_completed(new_position)) {
+        return false;
     }
 
     // debounced; undertake the action:
     do_aux_function(_option, new_position);
-    set_old_switch_position(new_position);
+    return true;
 }
 
 
@@ -536,6 +538,28 @@ void RC_Channel::do_aux_function_camera_trigger(const aux_switch_pos_t ch_flag)
     }
     if (ch_flag == HIGH) {
         camera->take_picture();
+    }
+}
+
+// enable or disable the fence
+void RC_Channel::do_aux_function_fence(const aux_switch_pos_t ch_flag)
+{
+    AC_Fence *fence = AP::fence();
+    if (fence == nullptr) {
+        return;
+    }
+
+    AP_Logger *logger = AP_Logger::get_singleton();
+    if (ch_flag == HIGH) {
+        fence->enable(true);
+        if (logger != nullptr) {
+            logger->Write_Event(DATA_FENCE_ENABLE);
+        }
+    } else {
+        fence->enable(false);
+        if (logger != nullptr) {
+            logger->Write_Event(DATA_FENCE_DISABLE);
+        }
     }
 }
 
@@ -625,11 +649,27 @@ void RC_Channel::do_aux_function_rc_override_enable(const aux_switch_pos_t ch_fl
     }
 }
 
+void RC_Channel::do_aux_function_mission_reset(const aux_switch_pos_t ch_flag)
+{
+    if (ch_flag != HIGH) {
+        return;
+    }
+    AP_Mission *mission = AP::mission();
+    if (mission == nullptr) {
+        return;
+    }
+    mission->reset();
+}
+
 void RC_Channel::do_aux_function(const aux_func_t ch_option, const aux_switch_pos_t ch_flag)
 {
     switch(ch_option) {
     case AUX_FUNC::CAMERA_TRIGGER:
         do_aux_function_camera_trigger(ch_flag);
+        break;
+
+    case AUX_FUNC::FENCE:
+        do_aux_function_fence(ch_flag);
         break;
 
     case AUX_FUNC::GRIPPER:
@@ -666,6 +706,9 @@ void RC_Channel::do_aux_function(const aux_func_t ch_option, const aux_switch_po
     case AUX_FUNC::CLEAR_WP:
         do_aux_function_clear_wp(ch_flag);
         break;
+    case AUX_FUNC::MISSION_RESET:
+        do_aux_function_mission_reset(ch_flag);
+        break;
 
     case AUX_FUNC::SPRAYER:
         do_aux_function_sprayer(ch_flag);
@@ -673,6 +716,21 @@ void RC_Channel::do_aux_function(const aux_func_t ch_option, const aux_switch_po
 
     case AUX_FUNC::LOST_VEHICLE_SOUND:
         do_aux_function_lost_vehicle_sound(ch_flag);
+        break;
+
+    case AUX_FUNC::ARMDISARM:
+        // arm or disarm the vehicle
+        switch (ch_flag) {
+        case HIGH:
+            AP::arming().arm(AP_Arming::Method::AUXSWITCH, true);
+            break;
+        case MIDDLE:
+            // nothing
+            break;
+        case LOW:
+            AP::arming().disarm();
+            break;
+        }
         break;
 
     case AUX_FUNC::COMPASS_LEARN:
@@ -730,11 +788,29 @@ void RC_Channel::do_aux_function(const aux_func_t ch_option, const aux_switch_po
             }
             break;
         }
-    }
-   break;
+        }
+        break;
+
+#if !HAL_MINIMIZE_FEATURES
+    case AUX_FUNC::KILL_IMU1:
+        if (ch_flag == HIGH) {
+            AP::ins().kill_imu(0, true);
+        } else {
+            AP::ins().kill_imu(0, false);
+        }
+        break;
+
+    case AUX_FUNC::KILL_IMU2:
+        if (ch_flag == HIGH) {
+            AP::ins().kill_imu(1, true);
+        } else {
+            AP::ins().kill_imu(1, false);
+        }
+        break;
+#endif // HAL_MINIMIZE_FEATURES
 
     default:
-        gcs().send_text(MAV_SEVERITY_INFO, "Invalid channel option (%u)", ch_option);
+        gcs().send_text(MAV_SEVERITY_INFO, "Invalid channel option (%u)", (unsigned int)ch_option);
         break;
     }
 }

@@ -145,7 +145,7 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
     // @Param: FRAME_TYPE
     // @DisplayName: Frame Type (+, X or V)
     // @Description: Controls motor mixing for multicopter component
-    // @Values: 0:Plus, 1:X, 2:V, 3:H, 4:V-Tail, 5:A-Tail, 10:Y6B, 11:Y6F
+    // @Values: 0:Plus, 1:X, 2:V, 3:H, 4:V-Tail, 5:A-Tail, 10:Y6B, 11:Y6F, 12:BetaFlightX, 13:DJIX, 14:ClockwiseX, 15: I
     // @User: Standard
     AP_GROUPINFO("FRAME_TYPE", 31, QuadPlane, frame_type, 1),
 
@@ -256,8 +256,8 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
 
     // @Param: TILT_TYPE
     // @DisplayName: Tiltrotor type
-    // @Description: This is the type of tiltrotor when TILT_MASK is non-zero. A continuous tiltrotor can tilt the rotors to any angle on demand. A binary tiltrotor assumes a retract style servo where the servo is either fully forward or fully up. In both cases the servo can't move faster than Q_TILT_RATE. A vectored yaw tiltrotor will use the tilt of the motors to control yaw in hover
-    // @Values: 0:Continuous,1:Binary,2:VectoredYaw
+    // @Description: This is the type of tiltrotor when TILT_MASK is non-zero. A continuous tiltrotor can tilt the rotors to any angle on demand. A binary tiltrotor assumes a retract style servo where the servo is either fully forward or fully up. In both cases the servo can't move faster than Q_TILT_RATE. A vectored yaw tiltrotor will use the tilt of the motors to control yaw in hover, Bicopter tiltrottor must use the tailsitter frame class (10)
+    // @Values: 0:Continuous,1:Binary,2:VectoredYaw,3:Bicopter
     AP_GROUPINFO("TILT_TYPE", 47, QuadPlane, tilt.tilt_type, TILT_TYPE_CONTINUOUS),
 
     // @Param: TAILSIT_ANGLE
@@ -309,7 +309,7 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
 
     // @Param: TILT_YAW_ANGLE
     // @DisplayName: Tilt minimum angle for vectored yaw
-    // @Description: This is the angle of the tilt servos when in VTOL mode and at minimum output. This needs to be set for Q_TILT_TYPE=3 to enable vectored control for yaw of tricopter tilt quadplanes.
+    // @Description: This is the angle of the tilt servos when in VTOL mode and at minimum output. This needs to be set for Q_TILT_TYPE=3 to enable vectored control for yaw of tricopter tilt quadplanes. This is also used to limit the forwards travel of bicopter tilts when in VTOL modes
     // @Range: 0 30
     AP_GROUPINFO("TILT_YAW_ANGLE", 55, QuadPlane, tilt.tilt_yaw_angle, 0),
 
@@ -328,8 +328,8 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
 
     // @Param: OPTIONS
     // @DisplayName: quadplane options
-    // @Description: This provides a set of additional control options for quadplanes. LevelTransition means that the wings should be held level to within LEVEL_ROLL_LIMIT degrees during transition to fixed wing flight, and the vehicle will not use the vertical lift motors to climb during the transition. If AllowFWTakeoff bit is not set then fixed wing takeoff on quadplanes will instead perform a VTOL takeoff. If AllowFWLand bit is not set then fixed wing land on quadplanes will instead perform a VTOL land. If respect takeoff frame is not set the vehicle will interpret all takeoff waypoints as an altitude above the corrent position.
-    // @Bitmask: 0:LevelTransition,1:AllowFWTakeoff,2:AllowFWLand,3:Respect takeoff frame types,4:Use a fixed wing approach for VTOL landings
+    // @Description: This provides a set of additional control options for quadplanes. LevelTransition means that the wings should be held level to within LEVEL_ROLL_LIMIT degrees during transition to fixed wing flight, and the vehicle will not use the vertical lift motors to climb during the transition. If AllowFWTakeoff bit is not set then fixed wing takeoff on quadplanes will instead perform a VTOL takeoff. If AllowFWLand bit is not set then fixed wing land on quadplanes will instead perform a VTOL land. If respect takeoff frame is not set the vehicle will interpret all takeoff waypoints as an altitude above the corrent position. When Use QRTL is set it will replace QLAND with QRTL for failsafe actions when in VTOL modes.
+    // @Bitmask: 0:LevelTransition,1:AllowFWTakeoff,2:AllowFWLand,3:Respect takeoff frame types,4:Use a fixed wing approach for VTOL landings,5:Use QRTL instead of QLAND for failsafe when in VTOL modes.
     AP_GROUPINFO("OPTIONS", 58, QuadPlane, options, 0),
 
     AP_SUBGROUPEXTENSION("",59, QuadPlane, var_info2),
@@ -443,6 +443,24 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @Increment: 1
     // @User: Standard
     AP_GROUPINFO("ACRO_YAW_RATE", 13, QuadPlane, acro_yaw_rate, 90),
+
+    // @Param: TKOFF_FAIL_SCL
+    // @DisplayName: Takeoff time failure scalar
+    // @Description: Scalar for how long past the expected takeoff time a takeoff should be considered as failed and the vehicle will switch to QLAND. If set to 0 there is no limit on takeoff time.
+    // @Range: 1.1 5.0
+    // @Increment: 5.1
+    // @User: Advanced
+    AP_GROUPINFO("TKOFF_FAIL_SCL", 14, QuadPlane, takeoff_failure_scalar, 0),
+
+    // @Param: TKOFF_ARSP_LIM
+    // @DisplayName: Takeoff airspeed limit
+    // @Description: Airspeed limit during takeoff. If the airspeed exceeds this level the vehicle will switch to QLAND. This is useful for ensuring that you don't takeoff into excessively strong wind. If set to 0 there is no limit on airspeed during takeoff.
+    // @Units: m/s
+    // @Range: 0 20
+    // @Increment: 1
+    // @User: Advanced
+    AP_GROUPINFO("TKOFF_ARSP_LIM", 15, QuadPlane, maximum_takeoff_airspeed, 0),
+
     AP_GROUPEND
 };
 
@@ -452,10 +470,10 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
 static const struct AP_Param::defaults_table_struct defaults_table[] = {
     { "Q_A_RAT_RLL_P",    0.25 },
     { "Q_A_RAT_RLL_I",    0.25 },
-    { "Q_A_RAT_RLL_FILT", 10.0 },
+    { "Q_A_RAT_RLL_FLTD", 10.0 },
     { "Q_A_RAT_PIT_P",    0.25 },
     { "Q_A_RAT_PIT_I",    0.25 },
-    { "Q_A_RAT_PIT_FILT", 10.0 },
+    { "Q_A_RAT_PIT_FLTD", 10.0 },
     { "Q_M_SPOOL_TIME",   0.25 },
     { "Q_M_HOVER_LEARN",     0 },
     { "Q_LOIT_ANG_MAX",   15.0 },
@@ -472,7 +490,8 @@ static const struct AP_Param::defaults_table_struct defaults_table_tailsitter[] 
     { "KFF_RDDRMIX",       0.02 },
     { "Q_A_RAT_PIT_FF",    0.2 },
     { "Q_A_RAT_YAW_FF",    0.2 },
-    { "Q_A_RAT_YAW_I",    0.18 },
+    { "Q_A_RAT_YAW_I",     0.18 },
+    { "Q_A_ANGLE_BOOST",   0 },
     { "LIM_PITCH_MAX",    3000 },
     { "LIM_PITCH_MIN",    -3000 },
     { "MIXING_GAIN",      1.0 },
@@ -495,12 +514,18 @@ const AP_Param::ConversionInfo q_conversion_table[] = {
     { Parameters::k_param_quadplane, 80,   AP_PARAM_FLOAT, "Q_P_ACCZ_I"},      //  Q_AZ_I
     { Parameters::k_param_quadplane, 144,  AP_PARAM_FLOAT, "Q_P_ACCZ_D"},      //  Q_AZ_D
     { Parameters::k_param_quadplane, 336,  AP_PARAM_FLOAT, "Q_P_ACCZ_IMAX"},   //  Q_AZ_IMAX
-    { Parameters::k_param_quadplane, 400,  AP_PARAM_FLOAT, "Q_P_ACCZ_FILT"},   //  Q_AZ_FILT
+    { Parameters::k_param_quadplane, 400,  AP_PARAM_FLOAT, "Q_P_ACCZ_FLTD"},   //  Q_AZ_FILT
     { Parameters::k_param_quadplane, 464,  AP_PARAM_FLOAT, "Q_P_ACCZ_FF"},     //  Q_AZ_FF
     { Parameters::k_param_quadplane, 276,  AP_PARAM_FLOAT, "Q_LOIT_SPEED"},    //  Q_WP_LOIT_SPEED
     { Parameters::k_param_quadplane, 468,  AP_PARAM_FLOAT, "Q_LOIT_BRK_JERK" },//  Q_WP_LOIT_JERK
     { Parameters::k_param_quadplane, 532,  AP_PARAM_FLOAT, "Q_LOIT_ACC_MAX" }, //  Q_WP_LOIT_MAXA
     { Parameters::k_param_quadplane, 596,  AP_PARAM_FLOAT, "Q_LOIT_BRK_ACCEL" },// Q_WP_LOIT_MINA
+    { Parameters::k_param_q_attitude_control, 385,  AP_PARAM_FLOAT, "Q_A_RAT_RLL_FLTD" },// Q_A_RAT_RLL_FILT
+    { Parameters::k_param_q_attitude_control, 386,  AP_PARAM_FLOAT, "Q_A_RAT_PIT_FLTD" },// Q_A_RAT_PIT_FILT
+    { Parameters::k_param_q_attitude_control, 387,  AP_PARAM_FLOAT, "Q_A_RAT_YAW_FLTE" },// Q_A_RAT_YAW_FILT
+    { Parameters::k_param_q_attitude_control, 449,  AP_PARAM_FLOAT, "Q_A_RAT_RLL_FF" },  // Q_A_RAT_RLL_FF
+    { Parameters::k_param_q_attitude_control, 450,  AP_PARAM_FLOAT, "Q_A_RAT_PIT_FF" },  // Q_A_RAT_PIT_FF
+    { Parameters::k_param_q_attitude_control, 451,  AP_PARAM_FLOAT, "Q_A_RAT_YAW_FF" },  // Q_A_RAT_YAW_FILT
 };
 
 
@@ -615,7 +640,9 @@ bool QuadPlane::setup(void)
             // this is a duo-motor tailsitter (vectored thrust if tilt.tilt_mask != 0)
             motors = new AP_MotorsTailsitter(plane.scheduler.get_loop_rate_hz(), rc_speed);
             motors_var_info = AP_MotorsTailsitter::var_info;
-            rotation = ROTATION_PITCH_90;
+            if (tilt.tilt_type != TILT_TYPE_BICOPTER) {
+                rotation = ROTATION_PITCH_90;
+            }
             break;
         default:
             motors = new AP_MotorsMatrix(plane.scheduler.get_loop_rate_hz(), rc_speed);
@@ -803,8 +830,8 @@ void QuadPlane::multicopter_attitude_rate_update(float yaw_rate_cds)
                                                                       yaw_rate_cds);
     } else {
         // use the fixed wing desired rates
-        float roll_rate = plane.rollController.get_pid_info().desired;
-        float pitch_rate = plane.pitchController.get_pid_info().desired;
+        float roll_rate = plane.rollController.get_pid_info().target;
+        float pitch_rate = plane.pitchController.get_pid_info().target;
         attitude_control->input_rate_bf_roll_pitch_yaw_2(roll_rate*100.0f, pitch_rate*100.0f, yaw_rate_cds);
     }
 }
@@ -1626,7 +1653,7 @@ void QuadPlane::update(void)
     }
 
 #if ADVANCED_FAILSAFE == ENABLED
-    if (plane.afs.should_crash_vehicle()) {
+    if (plane.afs.should_crash_vehicle() && !plane.afs.terminating_vehicle_via_landing()) {
         motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
         motors->output();
         return;
@@ -1818,7 +1845,9 @@ void QuadPlane::motors_output(bool run_rate_controller)
     }
 
 #if ADVANCED_FAILSAFE == ENABLED
-    if (!hal.util->get_soft_armed() || plane.afs.should_crash_vehicle() || SRV_Channels::get_emergency_stop()) {
+    if (!hal.util->get_soft_armed() ||
+        (plane.afs.should_crash_vehicle() && !plane.afs.terminating_vehicle_via_landing()) ||
+         SRV_Channels::get_emergency_stop()) {
 #else
     if (!hal.util->get_soft_armed() || SRV_Channels::get_emergency_stop()) {
 #endif
@@ -2064,7 +2093,8 @@ void QuadPlane::vtol_position_controller(void)
     case QPOS_POSITION1: {
         const Vector2f diff_wp = plane.current_loc.get_distance_NE(loc);
         const float distance = diff_wp.length();
-
+        Vector2f groundspeed = ahrs.groundspeed_vector();
+        float speed_towards_target = distance>1?(diff_wp.normalized() * groundspeed):0;
         if (poscontrol.speed_scale <= 0) {
             // initialise scaling so we start off targeting our
             // current linear speed towards the target. If this is
@@ -2072,8 +2102,6 @@ void QuadPlane::vtol_position_controller(void)
             // land_speed_scale is then used to linearly change
             // velocity as we approach the waypoint, aiming for zero
             // speed at the waypoint
-            Vector2f groundspeed = ahrs.groundspeed_vector();
-            float speed_towards_target = distance>1?(diff_wp.normalized() * groundspeed):0;
             // setup land_speed_scale so at current distance we
             // maintain speed towards target, and slow down as we
             // approach
@@ -2129,9 +2157,15 @@ void QuadPlane::vtol_position_controller(void)
           than the actual velocity curve (for a high drag
           aircraft). Nose down will cause a lot of downforce on the
           wings which will draw a lot of current and also cause the
-          aircraft to lose altitude rapidly.
+          aircraft to lose altitude rapidly.pitch limit varies also with speed
+          to prevent inability to progress to position if moving from a loiter
+          to landing
          */
-        float pitch_limit_cd = linear_interpolate(-300, plane.aparm.pitch_limit_min_cd,
+        float minlimit = linear_interpolate(-aparm.angle_max, -300,
+                                            speed_towards_target, 
+                                            wp_nav->get_default_speed_xy() * 0.01, 
+                                            wp_nav->get_default_speed_xy() * 0.015);
+        float pitch_limit_cd = linear_interpolate(minlimit, plane.aparm.pitch_limit_min_cd,
                                                   plane.auto_state.wp_proportion, 0, 1);
         if (plane.nav_pitch_cd < pitch_limit_cd) {
             plane.nav_pitch_cd = pitch_limit_cd;
@@ -2252,7 +2286,10 @@ void QuadPlane::vtol_position_controller(void)
 void QuadPlane::setup_target_position(void)
 {
     const Location &loc = plane.next_WP_loc;
-    Location origin = inertial_nav.get_origin();
+    Location origin;
+    if (!ahrs.get_origin(origin)) {
+        origin.zero();
+    }
     motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
 
     const Vector2f diff2d = origin.get_distance_NE(loc);
@@ -2441,6 +2478,29 @@ bool QuadPlane::do_vtol_takeoff(const AP_Mission::Mission_Command& cmd)
     
     // also update nav_controller for status output
     plane.nav_controller->update_waypoint(plane.prev_WP_loc, plane.next_WP_loc);
+
+    // calculate the time required to complete a takeoff
+    // this may be conservative and accept extra time due to clamping
+    // derived from the following latex equations if you want a nicely formatted view
+    // t_{accel} = \frac{V_max - V_z}{a}
+    // d_{accel} = V_z*t_{accel} + \frac{1}{2}*a*t_{accel}^2
+    // d_{remaining} = d_{total} - d_{accel}
+    // t_{constant} = \frac{d_{remaining}}{V_z}
+    // t = max(t_{accel}, 0) + max(t_{constant}, 0)
+    const float d_total = (plane.next_WP_loc.alt - plane.current_loc.alt) * 0.01f;
+    const float accel_m_s_s = MAX(10, pilot_accel_z) * 0.01f;
+    const float vel_max = MAX(10, pilot_velocity_z_max) * 0.01f;
+    const float vel_z = inertial_nav.get_velocity_z() * 0.01f;
+    const float t_accel = (vel_max - vel_z) / accel_m_s_s;
+    const float d_accel = vel_z * t_accel + 0.5f * accel_m_s_s * sq(t_accel);
+    const float d_remaining = d_total - d_accel;
+    const float t_constant = d_remaining / vel_max;
+    const float travel_time = MAX(t_accel, 0) + MAX(t_constant, 0);
+
+    // setup the takeoff failure handling code
+    takeoff_start_time_ms = millis();
+    takeoff_time_limit_ms = MAX(travel_time * takeoff_failure_scalar * 1000, 5000); // minimum time 5 seconds
+
     return true;
 }
 
@@ -2485,6 +2545,27 @@ bool QuadPlane::verify_vtol_takeoff(const AP_Mission::Mission_Command &cmd)
     if (!available()) {
         return true;
     }
+
+    const uint32_t now = millis();
+
+    // reset takeoff start time if we aren't armed, as we won't have made any progress
+    if (!hal.util->get_soft_armed()) {
+        takeoff_start_time_ms = now;
+    }
+
+    // check for failure conditions
+    if (is_positive(takeoff_failure_scalar) && ((now - takeoff_start_time_ms) > takeoff_time_limit_ms)) {
+        gcs().send_text(MAV_SEVERITY_CRITICAL, "Failed to complete takeoff within time limit");
+        plane.set_mode(plane.mode_qland, MODE_REASON_VTOL_FAILED_TAKEOFF);
+        return false;
+    }
+
+    if (is_positive(maximum_takeoff_airspeed) && (plane.airspeed.get_airspeed() > maximum_takeoff_airspeed)) {
+        gcs().send_text(MAV_SEVERITY_CRITICAL, "Failed to complete takeoff, excessive wind");
+        plane.set_mode(plane.mode_qland, MODE_REASON_VTOL_FAILED_TAKEOFF);
+        return false;
+    }
+
     if (plane.current_loc.alt < plane.next_WP_loc.alt) {
         return false;
     }
@@ -2543,7 +2624,7 @@ void QuadPlane::check_land_complete(void)
         return;
     }
     if (land_detector(4000)) {
-        plane.disarm_motors();
+        plane.arming.disarm();
         poscontrol.state = QPOS_LAND_COMPLETE;
         gcs().send_text(MAV_SEVERITY_INFO,"Land complete");
         // reload target airspeed which could have been modified by the mission
@@ -2714,6 +2795,10 @@ int8_t QuadPlane::forward_throttle_pct(void)
         // lidar could cause the aircraft not to be able to
         // approach the landing point when landing below the takeoff point
         vel_forward.last_pct = vel_forward.integrator;
+    } else if (in_vtol_land_final() && motors->limit.throttle_lower) {
+        // we're in the settling phase of landing, disable fwd motor
+        vel_forward.last_pct = 0;
+        vel_forward.integrator = 0;
     } else {
         // If we are below alt_cutoff then scale down the effect until
         // it turns off at alt_cutoff and decay the integrator
@@ -3023,4 +3108,12 @@ bool QuadPlane::in_vtol_land_descent(void) const
         return true;
     }
     return false;
+}
+
+/*
+  see if we are in the final phase of a VTOL landing
+ */
+bool QuadPlane::in_vtol_land_final(void) const
+{
+    return in_vtol_land_descent() && poscontrol.state == QPOS_LAND_FINAL;
 }

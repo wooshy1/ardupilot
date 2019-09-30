@@ -16,7 +16,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma GCC optimize("O3")
+#pragma GCC optimize("O2")
 
 #include "AP_Math.h"
 
@@ -242,6 +242,15 @@ void Vector3<T>::rotate(enum Rotation rotation)
         tmp = HALF_SQRT_2*(float)(x - z);
         z   = HALF_SQRT_2*(float)(x + z);
         x = tmp;
+        return;
+    }
+    case ROTATION_PITCH_7: {
+        const float sin_pitch = 0.12186934340514748f; // sinf(pitch);
+        const float cos_pitch = 0.992546151641322f; // cosf(pitch);
+        float tmpx = x;
+        float tmpz = z;
+        x =  cos_pitch * tmpx + sin_pitch * tmpz;
+        z = -sin_pitch * tmpx + cos_pitch * tmpz;
         return;
     }
     case ROTATION_CUSTOM: // no-op; caller should perform custom rotations via matrix multiplication

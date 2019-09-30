@@ -3,6 +3,7 @@
 #include <AP_Common/AP_Common.h>
 #include <APM_Control/AR_AttitudeControl.h>
 #include <AP_Navigation/AP_Navigation.h>
+#include <AC_Avoidance/AP_OAPathPlanner.h>
 
 const float AR_WPNAV_HEADING_UNKNOWN = 99999.0f; // used to indicate to set_desired_location method that next leg's heading is unknown
 
@@ -51,13 +52,22 @@ public:
     // return distance (in meters) to destination
     float get_distance_to_destination() const { return _distance_to_destination; }
 
+    // return true if destination is valid
+    bool is_destination_valid() const { return _orig_and_dest_valid; }
+
     // get current destination. Note: this is not guaranteed to be valid (i.e. _orig_and_dest_valid is not checked)
     const Location &get_destination() { return _destination; }
+
+    // get object avoidance adjusted destination. Note: this is not guaranteed to be valid (i.e. _orig_and_dest_valid is not checked)
+    const Location &get_oa_destination() { return _oa_destination; }
 
     // return heading (in degrees) and cross track error (in meters) for reporting to ground station (NAV_CONTROLLER_OUTPUT message)
     float wp_bearing_cd() const { return _wp_bearing_cd; }
     float nav_bearing_cd() const { return _desired_heading_cd; }
     float crosstrack_error() const { return _cross_track_error; }
+
+    // return the heading (in centi-degrees) to the next waypoint accounting for OA, (used by sailboats)
+    float oa_wp_bearing_cd() const { return _oa_wp_bearing_cd; }
 
     // settor to allow vehicle code to provide turn related param values to this library (should be updated regularly)
     void set_turn_params(float turn_max_g, float turn_radius, bool pivot_possible);
@@ -70,6 +80,10 @@ public:
     float get_radius() const { return _radius; }
     float get_overshoot() const { return _overshoot; }
     float get_pivot_rate() const { return _pivot_rate; }
+
+    // calculate stopping location using current position and attitude controller provided maximum deceleration
+    // returns true on success, false on failure
+    bool get_stopping_location(Location& stopping_loc) WARN_IF_UNUSED;
 
     // parameter var table
     static const struct AP_Param::GroupInfo var_info[];
@@ -91,20 +105,20 @@ private:
     // have been updated: _wp_bearing_cd, _cross_track_error, _distance_to_destination
     void update_desired_speed(float dt);
 
-    // calculate stopping location using current position and attitude controller provided maximum deceleration
-    // returns true on success, false on failure
-    bool get_stopping_location(Location& stopping_loc) WARN_IF_UNUSED;
-
     // returns true if vehicle should pivot turn at next waypoint
     bool use_pivot_steering_at_next_WP(float yaw_error_cd) const;
 
     // returns true if vehicle should pivot immediately (because heading error is too large)
     bool use_pivot_steering(float yaw_error_cd);
 
+    // adjust speed to ensure it does not fall below value held in SPEED_MIN
+    void apply_speed_min(float &desired_speed);
+
 private:
 
     // parameters
     AP_Float _speed_max;            // target speed between waypoints in m/s
+    AP_Float _speed_min;            // target speed minimum in m/s.  Vehicle will not slow below this speed for corners
     AP_Float _radius;               // distance in meters from a waypoint when we consider the waypoint has been reached
     AP_Float _overshoot;            // maximum horizontal overshoot in meters
     AP_Int16 _pivot_angle;          // angle error that leads to pivot turn
@@ -140,4 +154,11 @@ private:
     // variables for reporting
     float _distance_to_destination; // distance from vehicle to final destination in meters
     bool _reached_destination;      // true once the vehicle has reached the destination
+
+    // object avoidance variables
+    bool _oa_active;                // true if we should use alternative destination to avoid obstacles
+    Location _oa_origin;            // intermediate origin during avoidance
+    Location _oa_destination;       // intermediate destination during avoidance
+    float _oa_distance_to_destination; // OA (object avoidance) distance from vehicle to _oa_destination in meters
+    float _oa_wp_bearing_cd;        // OA adjusted heading to _oa_destination in centi-degrees
 };

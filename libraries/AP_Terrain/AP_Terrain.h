@@ -16,10 +16,10 @@
 
 #include <AP_Common/AP_Common.h>
 #include <AP_HAL/AP_HAL.h>
-#include <AP_Logger/AP_Logger.h>
 #include <AP_Common/Location.h>
+#include <AP_Filesystem/AP_Filesystem.h>
 
-#if (HAL_OS_POSIX_IO || HAL_OS_FATFS_IO) && defined(HAL_BOARD_TERRAIN_DIRECTORY)
+#if HAVE_FILESYSTEM_SUPPORT && defined(HAL_BOARD_TERRAIN_DIRECTORY)
 #define AP_TERRAIN_AVAILABLE 1
 #else
 #define AP_TERRAIN_AVAILABLE 0
@@ -28,7 +28,6 @@
 #if AP_TERRAIN_AVAILABLE
 
 #include <AP_Param/AP_Param.h>
-#include <AP_AHRS/AP_AHRS.h>
 #include <AP_Mission/AP_Mission.h>
 
 #define TERRAIN_DEBUG 0
@@ -105,9 +104,9 @@ public:
 
     // handle terrain data and reports from GCS
     void send_terrain_report(mavlink_channel_t chan, const Location &loc, bool extrapolate);
-    void handle_data(mavlink_channel_t chan, mavlink_message_t *msg);
-    void handle_terrain_check(mavlink_channel_t chan, mavlink_message_t *msg);
-    void handle_terrain_data(mavlink_message_t *msg);
+    void handle_data(mavlink_channel_t chan, const mavlink_message_t &msg);
+    void handle_terrain_check(mavlink_channel_t chan, const mavlink_message_t &msg);
+    void handle_terrain_data(const mavlink_message_t &msg);
 
     /*
       find the terrain height in meters above sea level for a location
